@@ -1,3 +1,13 @@
+# gaussian splatting
+*.pyc
+.vscode
+./gaussian_splatting/output
+./gaussian_splatting/build
+./gaussian_splatting/diff_rasterization/diff_rast.egg-info
+./gaussian_splatting/diff_rasterization/dist
+./gaussian_splatting/tensorboard_3d
+./gaussian_splatting/screenshots
+
 
 # dataset
 dataset/*

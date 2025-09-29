@@ -1,0 +1,4 @@
+# ninja log v7
+1	4370	1758115319382235583	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/simple_knn.o	226b0fde108cc4f2
+1	11442	1758115319382235583	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/ext.o	918a12bf6c9989d1
+1	19071	1758115319382235583	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/simple-knn/build/temp.linux-x86_64-cpython-38/spatial.o	8040cc1d3ad9bf67
