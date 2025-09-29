@@ -1,0 +1,46 @@
+name: 3dgs_gahyeon
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.8.12
+  - pip
+  - colmap=3.7
+  - ceres-solver=2.1.0
+  - eigen=3.4.0
+  # ===== PyTorch + CUDA 11.8 (conda로 관리) =====
+  - pytorch=2.1.0
+  - torchvision=0.16.0
+  - torchaudio=2.1.0
+  - pytorch-cuda=11.8
+
+  # ===== 나머지 conda 기반 패키지들 =====
+  - boost-cpp=1.74.0
+  - flann=1.9.1
+  - freeimage=3.18.0
+  - gflags=2.2.2
+  - glew=2.1.0
+  - glog=0.6.0
+  - suitesparse=5.10.1
+  - qt=5.12.9
+  - eigen=3.4.0
+  - hdf5
+  - sqlite
+  - ncurses
+  - zlib
+  - xz
+  - tk
+
+  # ===== pip 전용 =====
+  - pip:
+      - numpy==1.24.4
+      - opencv-python==4.11.0.86
+      - pillow==10.4.0
+      - tqdm==4.67.1
+      - plyfile==1.0.3
+      - pycolmap==3.11.0
+      - simple-knn==0.0.0
+      - git+https://github.com/graphdeco-inria/diff-gaussian-rasterization.git
