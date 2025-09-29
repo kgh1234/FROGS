@@ -1,0 +1,6 @@
+# ninja log v7
+0	1229	1758115344014984763	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-38/cuda_rasterizer/forward.o	1e18c3b0194e5c8b
+0	1308	1758115344014984763	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-38/cuda_rasterizer/backward.o	2342f2a15794b3f9
+0	3286	1758115344014984763	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-38/cuda_rasterizer/rasterizer_impl.o	2242e7e77b8f701c
+0	11507	1758115344014984763	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-38/ext.o	2e80360349c06ecc
+0	19704	1758115344014984763	/home/knuvi/Desktop/gahyeon/gaussian-splatting/submodules/diff-gaussian-rasterization/build/temp.linux-x86_64-cpython-38/rasterize_points.o	52948738c7f8da22
