@@ -13,6 +13,8 @@ dataset/*
 3dgs_output/*
 preTrash/*
 
+# output
+efficientvit_sam/outputs/*
 
 # vggt
 vggt/examples/*
