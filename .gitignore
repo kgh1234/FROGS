@@ -15,6 +15,7 @@ preTrash/*
 
 # output
 efficientvit_sam/outputs/*
+efficientvit_sam/weight/*
 
 # vggt
 vggt/examples/*
