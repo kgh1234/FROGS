@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import matplotlib
 import torch
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
@@ -448,26 +449,152 @@ class GaussianModel:
         new_tmp_radii = self.tmp_radii[selected_pts_mask]
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_tmp_radii)
-
-    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii):
-        grads = self.xyz_gradient_accum / self.denom
-        grads[grads.isnan()] = 0.0
+        
+    
+        
+        
+    def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii,
+                        mask=None,
+                        viewpoint_camera=None,
+                        iter=None,
+                        mask_prune_iter=1500,
+                        ):
+        
+        
 
         self.tmp_radii = radii
+
+        # ----------------------- mask-based pruning -----------------------
+        if mask is not None and mask_prune_iter is not None and iter == mask_prune_iter:
+            H, W = mask.shape[-2], mask.shape[-1]
+
+            # === COLMAP 기반 projection ===
+            uv = viewpoint_camera.project_to_screen(self.get_xyz)
+            u, v = uv[:, 0].long(), uv[:, 1].long()
+            num_points = self.get_xyz.shape[0]
+            valid = (radii > 0)
+            valid_idx = torch.nonzero(valid, as_tuple=False).squeeze(-1)
+            u_valid, v_valid = u[valid_idx], v[valid_idx]
+
+            # === mask sampling ===
+            if mask.ndim == 3:
+                mask = mask.mean(dim=0)
+            mask_vals = torch.zeros_like(valid, dtype=torch.float32, device=valid.device)
+            mask_vals[valid_idx] = mask[v_valid.clamp(0, H-1), u_valid.clamp(0, W-1)]
+
+            prune_mask = mask_vals < 0.5
+            self.prune_points(prune_mask)
+
+            print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
+
+
+        import matplotlib.pyplot as plt
+
+        if iter == mask_prune_iter:
+            # detach & move to CPU for visualization
+            u_vis = u.detach().cpu().numpy()
+            v_vis = v.detach().cpu().numpy()
+            mask_np = mask.detach().cpu().numpy()
+
+            # prune_mask: True → red (pruned), False → green (kept)
+            prune_np = prune_mask.detach().cpu().numpy()
+
+            plt.figure(figsize=(8, 6))
+            plt.imshow(mask_np, cmap='gray')
+            plt.scatter(u_vis[~prune_np], v_vis[~prune_np], s=1, c='lime', label='kept (inside mask)', alpha=0.4)
+            plt.scatter(u_vis[prune_np], v_vis[prune_np], s=1, c='red', label='pruned (outside mask)', alpha=0.4)
+            plt.gca().invert_yaxis()
+            plt.title(f"Mask-based Pruning Visualization @ iter {iter}")
+            plt.legend(loc='upper right')
+            plt.tight_layout()
+
+            save_path = f"debug/visualization_mask_prune_iter{iter}.png"
+            plt.savefig(save_path, dpi=200)
+            plt.close()
+            print(f"[MaskPrune] Visualization saved to {save_path}")
+
+
+        grads = self.xyz_gradient_accum / self.denom
+        grads[grads.isnan()] = 0.0
+        
+        # ------------- original densification and pruning -----------------
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
 
+
+        # ----------------------- original pruning and densification -----------------------
         prune_mask = (self.get_opacity < min_opacity).squeeze()
         if max_screen_size:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
+            
+            
+        remain_before = self.get_xyz.shape[0]
         self.prune_points(prune_mask)
+        remain_after = self.get_xyz.shape[0]
+        
+        #print(f"[Original prune] {remain_before - remain_after} removed → {remain_after} remain")
+        
         tmp_radii = self.tmp_radii
         self.tmp_radii = None
 
         torch.cuda.empty_cache()
 
+
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
+
+
+import matplotlib.pyplot as plt
+import numpy as np
+import os
+import numpy as np
+import torch, os
+import matplotlib.pyplot as plt
+import torch
+import numpy as np
+import os
+
+def visualize_mask_projection_with_centers(xy_proj, mask_img, save_path="debug/mask_check.png", point_size=5):
+    """
+    Visualize Gaussian 2D projections over mask image.
+
+    Args:
+        xy_proj (torch.Tensor): (N,2) projected coordinates (u,v)
+        mask_img (torch.Tensor or np.ndarray): [H,W] or [1,H,W]
+        save_path (str): output file path
+    """
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    # Convert mask → numpy grayscale
+    if isinstance(mask_img, torch.Tensor):
+        mask_np = mask_img.detach().cpu().numpy()
+    else:
+        mask_np = mask_img
+
+    if mask_np.ndim == 3:
+        mask_np = mask_np[0]  # [1,H,W]
+
+    H, W = mask_np.shape
+    plt.figure(figsize=(8, 6))
+    plt.imshow(mask_np, cmap='gray', origin='upper')
+
+    # Valid points only (inside image)
+    u = torch.round(xy_proj[:, 0]).long()
+    v = torch.round(xy_proj[:, 1]).long()
+
+    valid = (u >= 0) & (u < W) & (v >= 0) & (v < H)
+
+    u_valid = u[valid].cpu().numpy()
+    v_valid = v[valid].cpu().numpy()
+
+    plt.scatter(u_valid, v_valid, s=point_size, c='red', alpha=0.7)
+
+    plt.title(f"Mask projection check ({len(u_valid)} / {len(u)} visible)")
+    plt.axis('off')
+    plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+    plt.close()
+
+    print(f"[Saved] Projection visualization → {save_path}")
