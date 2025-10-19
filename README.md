@@ -1,3 +1,3 @@
 # FROGS
 
-안녕하세용? 가현이에용!
+Hello! I'm Gahyeon!
