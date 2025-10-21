@@ -4,9 +4,9 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="lerf-mask-ours"
+SCENE_NAME="lerf_mask_ours"
 ROOT="../dataset/$SCENE_NAME"
-OUTPUT_ROOT="output/lerf_masked_3dgs_new_loss"
+OUTPUT_ROOT="output_pruning/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
 
 export CUDA_VISIBLE_DEVICES=0
@@ -17,25 +17,26 @@ for SCENE_PATH in "$ROOT"/*; do
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        OUT_DIR="$OUTPUT_ROOT/${SCENE}_original_masked_3dgs"
+        OUT_DIR="$OUTPUT_ROOT/${SCENE}"
 
         echo "====================================="
         echo "Processing scene: $SCENE"
         echo "====================================="
 
         # 1) 이미지 백업
-        echo "[1/3] 백업 및 폴더 준비: $ORI_DIR"
-        if [ -d "$IMG_DIR" ] && [ ! -d "$ORI_DIR" ]; then
-            mv "$IMG_DIR" "$ORI_DIR"
-            echo "'$IMG_DIR' → '$ORI_DIR' 로 이동 완료"
-        else
-            echo "이미 '$ORI_DIR' 존재하거나 '$IMG_DIR' 없음 — 건너뜀"
-        fi
-        mkdir -p "$IMG_DIR"
+        if [ ! -d "$ORI_DIR" ]; then
+            echo "[1/3] 백업 및 폴더 준비: $ORI_DIR"
+            if [ -d "$IMG_DIR" ] && [ ! -d "$ORI_DIR" ]; then
+                mv "$IMG_DIR" "$ORI_DIR"
+                echo "'$IMG_DIR' → '$ORI_DIR' 로 이동 완료"
+            else
+                echo "이미 '$ORI_DIR' 존재하거나 '$IMG_DIR' 없음 — 건너뜀"
+            fi
+            mkdir -p "$IMG_DIR"
 
-        # 2) 마스크 적용
-        echo "[2/3] 마스크 적용 중..."
-        python3 - <<PYCODE
+            # 2) 마스크 적용
+            echo "[2/3] 마스크 적용 중..."
+            python3 - <<PYCODE
 import os, cv2, numpy as np
 from pathlib import Path
 
@@ -77,31 +78,35 @@ for fname in sorted(os.listdir(ori_dir)):
 
 print("모든 이미지 마스크 적용 완료 → 'images/' 폴더 저장됨")
 PYCODE
-
+    fi
         # 3) Training / Rendering / Metrics
         echo "[3/3] Training 시작..."
-        python train_newloss.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --eval
+        if [ -d "$OUT_DIR" ]; then
+            echo "'$OUT_DIR' 이미 존재 — 건너뜀"
+            #continue
+        fi
+        python train_pruning.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --eval
 
         echo "Rendering: $SCENE"
-        python render.py -m "$OUT_DIR"
+        python render.py -m "$OUT_DIR" 
 
-        echo "Evaluating metrics: $SCENE"
-        python metrics_object.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
+        # echo "Evaluating metrics: $SCENE"
+        # python metrics.py -m "$OUT_DIR" | tee metrics_tmp.log
 
-        # metrics 값 추출
-        SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
-        PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
-        LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
+        # # metrics 값 추출
+        # SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
+        # PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
+        # LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
 
-        # CSV 작성
-        if [ ! -f "$CSV_FILE" ]; then
-            echo "scene,SSIM,PSNR,LPIPS" > "$CSV_FILE"
-        fi
-        echo "$SCENE,$SSIM,$PSNR,$LPIPS" >> "$CSV_FILE"
+        # # CSV 작성
+        # if [ ! -f "$CSV_FILE" ]; then
+        #     echo "scene,SSIM,PSNR,LPIPS" > "$CSV_FILE"
+        # fi
+        # echo "$SCENE,$SSIM,$PSNR,$LPIPS" >> "$CSV_FILE"
 
-        echo "Metrics for $SCENE appended to $CSV_FILE"
-        echo "Finished: $SCENE"
-        echo
+        # echo "Metrics for $SCENE appended to $CSV_FILE"
+        # echo "Finished: $SCENE"
+        # echo
     fi
 done
 
