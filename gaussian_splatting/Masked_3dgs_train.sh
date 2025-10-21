@@ -96,7 +96,7 @@ PYCODE
         # metrics 값 추출
         SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
         PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
-        LPIPS=$(grep "LPIPS" metrics_tmp.log | awk '{print $3}')
+        LPIPS=$(grep "LPIPS" metrics_tmp.log | awk '{print $2}')
 
         # CSV 작성
         if [ ! -f "$CSV_FILE" ]; then

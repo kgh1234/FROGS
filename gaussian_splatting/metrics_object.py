@@ -150,9 +150,9 @@ def evaluate(model_paths, mask_dir):
                 # print(f"  LPIPS: {lpips(render_masked, gt_masked, net_type='vgg')}")
                 # print("")
 
-            print("overall  SSIM : {:>12.7f}".format(torch.tensor(ssims).mean()))
-            print("overall  PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean()))
-            print("overall  LPIPS: {:>12.7f}".format(torch.tensor(lpipss).mean()))
+            print("SSIM : {:>12.7f}".format(torch.tensor(ssims).mean()))
+            print("PSNR : {:>12.7f}".format(torch.tensor(psnrs).mean()))
+            print("LPIPS: {:>12.7f}".format(torch.tensor(lpipss).mean()))
             print("")
 
             full_dict[scene_dir][method].update({
