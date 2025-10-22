@@ -90,23 +90,23 @@ PYCODE
         echo "Rendering: $SCENE"
         python render.py -m "$OUT_DIR" 
 
-        # echo "Evaluating metrics: $SCENE"
-        # python metrics.py -m "$OUT_DIR" | tee metrics_tmp.log
+        echo "Evaluating metrics: $SCENE"
+        python metrics_object.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
 
-        # # metrics 값 추출
-        # SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
-        # PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
-        # LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
+        # metrics 값 추출
+        SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
+        PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
+        LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
 
-        # # CSV 작성
-        # if [ ! -f "$CSV_FILE" ]; then
-        #     echo "scene,SSIM,PSNR,LPIPS" > "$CSV_FILE"
-        # fi
-        # echo "$SCENE,$SSIM,$PSNR,$LPIPS" >> "$CSV_FILE"
+        # CSV 작성
+        if [ ! -f "$CSV_FILE" ]; then
+            echo "scene,SSIM,PSNR,LPIPS" > "$CSV_FILE"
+        fi
+        echo "$SCENE,$SSIM,$PSNR,$LPIPS" >> "$CSV_FILE"
 
-        # echo "Metrics for $SCENE appended to $CSV_FILE"
-        # echo "Finished: $SCENE"
-        # echo
+        echo "Metrics for $SCENE appended to $CSV_FILE"
+        echo "Finished: $SCENE"
+        echo
     fi
 done
 

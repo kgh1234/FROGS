@@ -229,7 +229,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         mask=mask if use_mask else None,
                         viewpoint_camera=viewpoint_cam,
                         iter=iteration,
-                        mask_prune_iter=600
+                        #mask_prune_iter=[600, 13000]
                     )
                     
                 

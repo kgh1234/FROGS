@@ -463,9 +463,9 @@ class GaussianModel:
         
 
         self.tmp_radii = radii
-
+        prune_ratio = 0.3
         # ----------------------- mask-based pruning -----------------------
-        if mask is not None and mask_prune_iter is not None and iter == mask_prune_iter:
+        if mask is not None and mask_prune_iter is not None:
             H, W = mask.shape[-2], mask.shape[-1]
 
             # === COLMAP 기반 projection ===
@@ -482,9 +482,19 @@ class GaussianModel:
             mask_vals = torch.zeros_like(valid, dtype=torch.float32, device=valid.device)
             mask_vals[valid_idx] = mask[v_valid.clamp(0, H-1), u_valid.clamp(0, W-1)]
 
-            prune_mask = mask_vals < 0.5
-            self.prune_points(prune_mask)
 
+            num_points = mask_vals.numel()
+            num_prune = int(num_points * prune_ratio)
+
+            sorted_vals, sorted_idx = torch.sort(mask_vals)
+            prune_idx = sorted_idx[:num_prune]
+
+
+            prune_mask = torch.zeros_like(mask_vals, dtype=torch.bool)
+            prune_mask[prune_idx] = True
+
+            self.prune_points(prune_mask)
+            prune_ratio *= 0.5
             print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
 
 
