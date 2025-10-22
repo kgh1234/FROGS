@@ -4,9 +4,9 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="lerf-mask-ours"
-ROOT="../dataset/$SCENE_NAME"
-OUTPUT_ROOT="output/lerf_masked_3dgs_new_loss"
+SCENE_NAME="mipnerf"
+ROOT="../../masked_datasets/$SCENE_NAME"
+OUTPUT_ROOT="../../output_newloss_0.00001/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
 
 export CUDA_VISIBLE_DEVICES=0
@@ -54,11 +54,11 @@ for fname in sorted(os.listdir(ori_dir)):
 
     base = Path(fname).stem
     mask_path = None
-    for ext in [".png", ".jpg", ".jpeg"]:
+    for ext in [".png", ".jpg", ".jpeg", ".JPG"]:
         p = mask_dir / f"{base}{ext}"
         if p.exists():
             mask_path = p
-        break
+
     img = cv2.imread(str(img_path))
     mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
     if img is None:
