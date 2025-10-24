@@ -19,7 +19,7 @@ for SCENE_PATH in "$ROOT"/*; do
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        OUT_DIR="$OUTPUT_ROOT/${SCENE}_original_masked_3dgs"
+        OUT_DIR="$OUTPUT_ROOT/${SCENE}"
 
         echo "====================================="
         echo "Processing scene: $SCENE"
