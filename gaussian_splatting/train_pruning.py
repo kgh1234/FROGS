@@ -43,6 +43,30 @@ try:
 except:
     SPARSE_ADAM_AVAILABLE = False
 
+class AdaptiveStopper:
+    def __init__(self, patience=1000, min_delta=1e-5):
+        """
+        patience : 최근 몇 step 동안의 변화를 추적할지
+        min_delta: 평균 개선폭이 이 값보다 작으면 stop
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.history = []
+
+    def update(self, loss_val):
+        self.history.append(loss_val)
+        if len(self.history) < self.patience:
+            return False  # 아직 모니터링 구간 부족
+
+        recent = np.array(self.history[-self.patience:])
+        improvement = recent[:-1] - recent[1:]
+        mean_improve = np.mean(improvement)
+
+        if mean_improve < self.min_delta:
+            print(f"[AdaptiveStop] Loss improvement too small ({mean_improve:.6e}) → stopping training.")
+            return True
+        return False
+
 
 # =========================
 # Mask Utilities
@@ -158,23 +182,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         
         use_mask = mask_dir is not None and len(mask_dir) > 0
         if use_mask:
-            if iteration <= 15000:
-                out_diff = torch.abs(image - gt_image) * (1 - mask) * 0.00001
-                Ll1 = (diff.sum() + out_diff.sum()) / (image.numel() / image.shape[0] + 1e-8)
-                
-                mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
-                if mask_path and os.path.exists(mask_path):
-                    mask = _load_binary_mask(mask_path, image.shape[1], image.shape[2],
-                                            binary_threshold=mask_binary_threshold,
-                                            invert=mask_invert).unsqueeze(0)
-                    mask = mask.expand_as(gt_image)
-                else:
-                    mask = torch.ones_like(gt_image)
-                
-                diff = torch.abs(image - gt_image) * mask
-
+            mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
+            if mask_path and os.path.exists(mask_path):
+                mask = _load_binary_mask(mask_path, image.shape[1], image.shape[2],
+                                        binary_threshold=mask_binary_threshold,
+                                        invert=mask_invert).unsqueeze(0)
+                mask = mask.expand_as(gt_image)
             else:
-                Ll1 = l1_loss(image, gt_image)
+                mask = torch.ones_like(gt_image)
+                
+            diff = torch.abs(image - gt_image) * mask
+            out_diff = torch.abs(image - gt_image) * (1 - mask) * 0.00001
+            Ll1 = (diff.sum() + out_diff.sum()) / (image.numel() / image.shape[0] + 1e-8)
 
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0)) if FUSED_SSIM_AVAILABLE \
                          else ssim(image, gt_image)
@@ -184,6 +203,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0)) if FUSED_SSIM_AVAILABLE \
                          else ssim(image, gt_image)
             loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+
+
+        # Early stopping (convergence-rate based)
+        stopper = stopper if 'stopper' in locals() else AdaptiveStopper(patience=10000, min_delta=1e-10)
+        if stopper.update(loss.item()):
+            print(f"Early stop triggered at iteration {iteration}")
+            print(f"\n[ITER {iteration}] Saving Gaussians...")
+            scene.save(iteration)
+            break
 
         # Depth regularization
         Ll1depth_pure = 0.0
