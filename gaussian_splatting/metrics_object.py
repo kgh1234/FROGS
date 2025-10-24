@@ -70,7 +70,7 @@ def evaluate(model_paths, mask_dir):
             per_view_dict[scene_dir] = {}
             full_dict_polytopeonly[scene_dir] = {}
             per_view_dict_polytopeonly[scene_dir] = {}
-            method = 'ours_30000'
+            method = sorted(os.listdir(test_dir))[-1]
             test_dir = Path(scene_dir) / "test"
 
             print("Method:", method)
