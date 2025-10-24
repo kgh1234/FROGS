@@ -120,7 +120,7 @@ class Camera(nn.Module):
         u = torch.clamp(u, 0, W - 1)
         v = torch.clamp(v, 0, H - 1)
 
-        print(f"[Proj2Screen-ColmapLike] u range: {u.min():.1f}~{u.max():.1f}, v range: {v.min():.1f}~{v.max():.1f}, mask size: ({H},{W})")
+        #print(f"[Proj2Screen-ColmapLike] u range: {u.min():.1f}~{u.max():.1f}, v range: {v.min():.1f}~{v.max():.1f}, mask size: ({H},{W})")
 
         return torch.stack([u, v], dim=1)
     
@@ -158,7 +158,7 @@ class Camera(nn.Module):
 
         u = u.clamp(0, W - 1)
         v = v.clamp(0, H - 1)
-        print(f"[Proj2Screen-GSReal] u {u.min():.1f}~{u.max():.1f}, v {v.min():.1f}~{v.max():.1f}, ({H},{W})")
+        #print(f"[Proj2Screen-GSReal] u {u.min():.1f}~{u.max():.1f}, v {v.min():.1f}~{v.max():.1f}, ({H},{W})")
 
         return torch.stack([u, v], dim=1)
 

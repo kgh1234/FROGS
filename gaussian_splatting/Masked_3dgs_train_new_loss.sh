@@ -8,6 +8,8 @@ SCENE_NAME="mipnerf"
 ROOT="../../masked_datasets/$SCENE_NAME"
 OUTPUT_ROOT="../../output_newloss_0.00001/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
+SHEET_NAME="Ours_inoutloss_0.00001"
+
 
 export CUDA_VISIBLE_DEVICES=0
 
@@ -23,67 +25,32 @@ for SCENE_PATH in "$ROOT"/*; do
         echo "Processing scene: $SCENE"
         echo "====================================="
 
-        # 1) 이미지 백업
-        echo "[1/3] 백업 및 폴더 준비: $ORI_DIR"
-        if [ -d "$IMG_DIR" ] && [ ! -d "$ORI_DIR" ]; then
-            mv "$IMG_DIR" "$ORI_DIR"
-            echo "'$IMG_DIR' → '$ORI_DIR' 로 이동 완료"
-        else
-            echo "이미 '$ORI_DIR' 존재하거나 '$IMG_DIR' 없음 — 건너뜀"
-        fi
-        mkdir -p "$IMG_DIR"
-
-        # 2) 마스크 적용
-        echo "[2/3] 마스크 적용 중..."
-        python3 - <<PYCODE
-import os, cv2, numpy as np
-from pathlib import Path
-
-scene_dir = Path("$SCENE_PATH")
-ori_dir = scene_dir / "images_ori"
-mask_dir = scene_dir / "mask"
-out_dir = scene_dir / "images"
-out_dir.mkdir(parents=True, exist_ok=True)
-
-for fname in sorted(os.listdir(ori_dir)):
-    if not fname.lower().endswith((".jpg", ".jpeg", ".png")):
-        continue
-
-    img_path = ori_dir / fname
-    out_path = out_dir / fname
-
-    base = Path(fname).stem
-    mask_path = None
-    for ext in [".png", ".jpg", ".jpeg", ".JPG"]:
-        p = mask_dir / f"{base}{ext}"
-        if p.exists():
-            mask_path = p
-
-    img = cv2.imread(str(img_path))
-    mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        print(f"이미지 읽기 실패: {fname}")
-        continue
-
-    if mask is None:
-        print(f"마스크 없음 → 원본 복사: {fname}")
-        cv2.imwrite(str(out_path), img)
-        continue
-
-    mask_bin = (mask > 127).astype(np.uint8)
-    masked = img * mask_bin[:, :, None]
-    cv2.imwrite(str(out_path), masked)
-    #print(f"마스크 적용 완료: {fname}")
-
-print("모든 이미지 마스크 적용 완료 → 'images/' 폴더 저장됨")
-PYCODE
-
-        # 3) Training / Rendering / Metrics
-        echo "[3/3] Training 시작..."
+        echo " Training 시작..."
+        
+        TRAIN_START=$(date +%s)
+        LOGFILE="vram_${SCENE}.log"
+        nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
+        VRAM_PID=$!
+        
         python train_newloss.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --eval
 
+        TRAIN_END=$(date +%s)
+        TRAIN_TIME=$((TRAIN_END - TRAIN_START))
+        echo "Training time: ${TRAIN_TIME}s"
+
+        kill $VRAM_PID 2>/dev/null
+        VRAM_MAX=$(awk 'BEGIN{max=0}{if($1>max)max=$1}END{print max}' "$LOGFILE")
+        rm -f "$LOGFILE"
+
         echo "Rendering: $SCENE"
+ 
+        RENDER_START=$(date +%s)
         python render.py -m "$OUT_DIR"
+        RENDER_END=$(date +%s)
+        RENDER_TIME=$((RENDER_END - RENDER_START))
+        echo "Rendering time: ${RENDER_TIME}s"
+
+
 
         echo "Evaluating metrics: $SCENE"
         python metrics_object.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
@@ -92,6 +59,10 @@ PYCODE
         SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
         PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
         LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
+
+        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX"
+
+
 
         # CSV 작성
         if [ ! -f "$CSV_FILE" ]; then

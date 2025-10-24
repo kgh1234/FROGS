@@ -4,11 +4,11 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="mipnerf"
+SCENE_NAME="lerf_mask"
 ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_newloss_0.00001/$SCENE_NAME"
+OUTPUT_ROOT="../../output_objectgs/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="Ours_inoutloss_0.00001"
+SHEET_NAME="ObjectGS"
 
 export CUDA_VISIBLE_DEVICES=0
 
@@ -18,7 +18,8 @@ for SCENE_PATH in "$ROOT"/*; do
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        OUT_DIR="$OUTPUT_ROOT/${SCENE}_original_masked_3dgs"
+        SCENE_NAME="${SCENE%%_*}"
+        OUT_DIR="$OUTPUT_ROOT/${SCENE_NAME}"
 
         echo "Evaluating metrics: $SCENE"
         python metrics_object.py -m "$OUT_DIR" -mask "$MASK_DIR" | tee metrics_tmp.log

@@ -4,7 +4,7 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="mipnes"
+SCENE_NAME="lerf_mask"
 ROOT="../../original_datasets/$SCENE_NAME"
 OUTPUT_ROOT="../../output_original/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
