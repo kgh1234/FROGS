@@ -463,9 +463,9 @@ class GaussianModel:
         
 
         self.tmp_radii = radii
-        prune_ratio = 0.3
+        prune_ratio = 0.8
         # ----------------------- mask-based pruning -----------------------
-        if mask is not None and mask_prune_iter is not None:
+        if mask is not None and mask_prune_iter is not None and iter in mask_prune_iter:
             H, W = mask.shape[-2], mask.shape[-1]
 
             # === COLMAP 기반 projection ===
@@ -494,34 +494,34 @@ class GaussianModel:
             prune_mask[prune_idx] = True
 
             self.prune_points(prune_mask)
-            prune_ratio *= 0.5
-            print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
+            #prune_ratio *= 0.5
+            #print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
 
 
-        import matplotlib.pyplot as plt
+        # import matplotlib.pyplot as plt
 
-        if iter == mask_prune_iter:
-            # detach & move to CPU for visualization
-            u_vis = u.detach().cpu().numpy()
-            v_vis = v.detach().cpu().numpy()
-            mask_np = mask.detach().cpu().numpy()
+        # if iter == mask_prune_iter:
+        #     # detach & move to CPU for visualization
+        #     u_vis = u.detach().cpu().numpy()
+        #     v_vis = v.detach().cpu().numpy()
+        #     mask_np = mask.detach().cpu().numpy()
 
-            # prune_mask: True → red (pruned), False → green (kept)
-            prune_np = prune_mask.detach().cpu().numpy()
+        #     # prune_mask: True → red (pruned), False → green (kept)
+        #     prune_np = prune_mask.detach().cpu().numpy()
 
-            plt.figure(figsize=(8, 6))
-            plt.imshow(mask_np, cmap='gray')
-            plt.scatter(u_vis[~prune_np], v_vis[~prune_np], s=1, c='lime', label='kept (inside mask)', alpha=0.4)
-            plt.scatter(u_vis[prune_np], v_vis[prune_np], s=1, c='red', label='pruned (outside mask)', alpha=0.4)
-            plt.gca().invert_yaxis()
-            plt.title(f"Mask-based Pruning Visualization @ iter {iter}")
-            plt.legend(loc='upper right')
-            plt.tight_layout()
+        #     plt.figure(figsize=(8, 6))
+        #     plt.imshow(mask_np, cmap='gray')
+        #     plt.scatter(u_vis[~prune_np], v_vis[~prune_np], s=1, c='lime', label='kept (inside mask)', alpha=0.4)
+        #     plt.scatter(u_vis[prune_np], v_vis[prune_np], s=1, c='red', label='pruned (outside mask)', alpha=0.4)
+        #     plt.gca().invert_yaxis()
+        #     plt.title(f"Mask-based Pruning Visualization @ iter {iter}")
+        #     plt.legend(loc='upper right')
+        #     plt.tight_layout()
 
-            save_path = f"debug/visualization_mask_prune_iter{iter}.png"
-            plt.savefig(save_path, dpi=200)
-            plt.close()
-            print(f"[MaskPrune] Visualization saved to {save_path}")
+        #     save_path = f"debug/visualization_mask_prune_iter{iter}.png"
+        #     plt.savefig(save_path, dpi=200)
+        #     plt.close()
+        #     print(f"[MaskPrune] Visualization saved to {save_path}")
 
 
         grads = self.xyz_gradient_accum / self.denom

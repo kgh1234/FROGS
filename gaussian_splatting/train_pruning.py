@@ -158,19 +158,24 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         
         use_mask = mask_dir is not None and len(mask_dir) > 0
         if use_mask:
-            mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
-            if mask_path and os.path.exists(mask_path):
-                mask = _load_binary_mask(mask_path, image.shape[1], image.shape[2],
-                                         binary_threshold=mask_binary_threshold,
-                                         invert=mask_invert).unsqueeze(0)
-                mask = mask.expand_as(gt_image)
+            if iteration <= 15000:
+                out_diff = torch.abs(image - gt_image) * (1 - mask) * 0.00001
+                Ll1 = (diff.sum() + out_diff.sum()) / (image.numel() / image.shape[0] + 1e-8)
+                
+                mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
+                if mask_path and os.path.exists(mask_path):
+                    mask = _load_binary_mask(mask_path, image.shape[1], image.shape[2],
+                                            binary_threshold=mask_binary_threshold,
+                                            invert=mask_invert).unsqueeze(0)
+                    mask = mask.expand_as(gt_image)
+                else:
+                    mask = torch.ones_like(gt_image)
+                
+                diff = torch.abs(image - gt_image) * mask
+
             else:
-                mask = torch.ones_like(gt_image)
-            
-            diff = torch.abs(image - gt_image) * mask
-            out_diff = torch.abs(image - gt_image) * (1 - mask) * 0.00001
-            
-            Ll1 = (diff.sum() + out_diff.sum()) / (image.numel() / image.shape[0] + 1e-8)
+                Ll1 = l1_loss(image, gt_image)
+
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0)) if FUSED_SSIM_AVAILABLE \
                          else ssim(image, gt_image)
             loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
@@ -229,7 +234,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         mask=mask if use_mask else None,
                         viewpoint_camera=viewpoint_cam,
                         iter=iteration,
-                        #mask_prune_iter=[600, 13000]
+                        mask_prune_iter=[6000, 9000, 12000]
                     )
                     
                 
