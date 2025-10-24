@@ -19,7 +19,8 @@ for SCENE_PATH in "$ROOT"/*; do
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        OUT_DIR="$OUTPUT_ROOT/${SCENE}"
+        OUT_DIR="$OUTPUT_ROOT/${SCENE}/$(date -d '+9 hours' +%m%d_%H%M)"
+
 
         echo "====================================="
         echo "Processing scene: $SCENE"
@@ -31,8 +32,8 @@ for SCENE_PATH in "$ROOT"/*; do
         LOGFILE="vram_${SCENE}.log"
         nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
         VRAM_PID=$!
-        
-        python train_pruning.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --eval
+
+        python train_pruning.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 600 700 800 --eval
 
         TRAIN_END=$(date +%s)
         TRAIN_TIME=$((TRAIN_END - TRAIN_START))
@@ -55,12 +56,32 @@ for SCENE_PATH in "$ROOT"/*; do
         echo "Evaluating metrics: $SCENE"
         python metrics_object.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
 
+
+        POINT_CLOUD_DIR="$OUT_DIR/point_cloud"
+        if [ -d "$POINT_CLOUD_DIR" ]; then
+            # iteration_* 폴더 중 가장 큰 숫자 선택
+            LATEST_ITER_DIR=$(ls -d "$POINT_CLOUD_DIR"/iteration_* 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$LATEST_ITER_DIR" ]; then
+                PLY_PATH="$LATEST_ITER_DIR/point_cloud.ply"
+                if [ -f "$PLY_PATH" ]; then
+                    GAUSSIAN_COUNT=$(grep -a -m1 "element vertex" "$PLY_PATH" | awk '{print $3}')
+                    echo "Gaussian: $GAUSSIAN_COUNT (from $(basename "$LATEST_ITER_DIR"))"
+                else
+                    echo "Gaussian: PLY not found in $(basename "$LATEST_ITER_DIR")"
+                fi
+            else
+                echo "Gaussian: No iteration_* folder found under $POINT_CLOUD_DIR"
+            fi
+        else
+            echo "Gaussian: point_cloud folder not found in $OUT_DIR"
+        fi
+
         # metrics 값 추출
         SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
         PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
         LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
 
-        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX"
+        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX" "$GAUSSIAN_COUNT"
 
 
 
