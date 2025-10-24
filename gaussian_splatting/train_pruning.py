@@ -101,7 +101,7 @@ def _load_binary_mask(mask_path: str, H: int, W: int, binary_threshold=128, inve
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
-             mask_dir=None, mask_binary_threshold=128, mask_invert=False):
+             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iterations=[]):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -181,8 +181,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         
         
         use_mask = mask_dir is not None and len(mask_dir) > 0
-        if use_mask:
+        if use_mask and len(prune_iterations) > 0 and iteration < prune_iterations[0]:
+            
             mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
+            
             if mask_path and os.path.exists(mask_path):
                 mask = _load_binary_mask(mask_path, image.shape[1], image.shape[2],
                                         binary_threshold=mask_binary_threshold,
@@ -198,6 +200,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0)) if FUSED_SSIM_AVAILABLE \
                          else ssim(image, gt_image)
             loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+        
+        
         else:
             Ll1 = l1_loss(image, gt_image)
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0)) if FUSED_SSIM_AVAILABLE \
@@ -206,7 +210,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
 
         # Early stopping (convergence-rate based)
-        stopper = stopper if 'stopper' in locals() else AdaptiveStopper(patience=10000, min_delta=1e-10)
+        stopper = stopper if 'stopper' in locals() else AdaptiveStopper(patience=20000, min_delta=1e-13)
         if stopper.update(loss.item()):
             print(f"Early stop triggered at iteration {iteration}")
             print(f"\n[ITER {iteration}] Saving Gaussians...")
@@ -262,7 +266,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         mask=mask if use_mask else None,
                         viewpoint_camera=viewpoint_cam,
                         iter=iteration,
-                        mask_prune_iter=[6000, 9000, 12000]
+                        mask_prune_iter=[]
                     )
                     
                 
@@ -365,6 +369,8 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
     
+    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[3000])
+    
     parser.add_argument("--mask_dir", type=str, default="")
     parser.add_argument("--mask_binary_threshold", type=int, default=128)
     parser.add_argument("--mask_invert", action="store_true")
@@ -387,7 +393,8 @@ if __name__ == "__main__":
             args.debug_from,
             mask_dir=args.mask_dir if args.mask_dir else None,
             mask_binary_threshold=args.mask_binary_threshold,
-            mask_invert=args.mask_invert
+            mask_invert=args.mask_invert,
+            prune_iterations=args.prune_iterations,
             )
 
     # All done
