@@ -14,6 +14,8 @@ from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
 
 
 # ====== PATHS ======
+
+ROOT_DIR = "/workspace/gahyeon"
 CONFIG_FILE = "/workspace/gahyeon/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
 CHECKPOINT_PATH = "/workspace/gahyeon/GroundingDINO/weights/groundingdino_swint_ogc.pth"
 SAM_CKPT = "/workspace/gahyeon/efficientvit_sam/weight/efficientvit_sam_xl1.pt"
