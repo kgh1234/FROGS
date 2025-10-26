@@ -72,7 +72,6 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
-        # the exact output you're looking for:
         sys.stdout.write("Reading camera {}/{}".format(idx+1, len(cam_extrinsics)))
         sys.stdout.flush()
 
@@ -126,18 +125,13 @@ def fetchPly(path):
     return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 def storePly(path, xyz, rgb):
-    # Define the dtype for the structured array
     dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
             ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),
             ('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]
-    
     normals = np.zeros_like(xyz)
-
     elements = np.empty(xyz.shape[0], dtype=dtype)
     attributes = np.concatenate((xyz, normals, rgb), axis=1)
     elements[:] = list(map(tuple, attributes))
-
-    # Create the PlyData object and write to file
     vertex_element = PlyElement.describe(elements, 'vertex')
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
@@ -155,17 +149,13 @@ def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     depth_params_file = os.path.join(path, "sparse/0", "depth_params.json")
-    ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
     if depths != "":
         try:
             with open(depth_params_file, "r") as f:
                 depths_params = json.load(f)
             all_scales = np.array([depths_params[key]["scale"] for key in depths_params])
-            if (all_scales > 0).sum():
-                med_scale = np.median(all_scales[all_scales > 0])
-            else:
-                med_scale = 0
+            med_scale = np.median(all_scales[all_scales > 0]) if (all_scales > 0).sum() else 0
             for key in depths_params:
                 depths_params[key]["med_scale"] = med_scale
 
@@ -225,52 +215,98 @@ def readColmapSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8):
                            is_nerf_synthetic=False)
     return scene_info
 
+
 def readCamerasFromTransforms(path, transformsfile, depths_folder, white_background, is_test, extension=".png"):
+    """
+    - frames[*].file_path 가 확장자를 포함하면 그대로 사용
+    - 확장자 없으면 다음 순서로 탐색:
+        1) 지정된 extension (기본 .png, 환경변수 GS_IMAGES_EXT로 덮기 가능)
+        2) .jpg
+        3) .png
+    - 절대경로/상대경로 모두 지원 (상대경로는 'path' 기준)
+    - test(True)에서는 이미지가 없어도 진행 (novel view 렌더)
+    """
     cam_infos = []
 
     with open(os.path.join(path, transformsfile)) as json_file:
         contents = json.load(json_file)
+
+        w = contents["w"]
+        h = contents["h"]
         fovx = contents["camera_angle_x"]
-
         frames = contents["frames"]
+
+        ext_hint = os.environ.get("GS_IMAGES_EXT", None)
+        if ext_hint is not None and ext_hint != "":
+            extension = ext_hint if ext_hint.startswith(".") else f".{ext_hint}"
+
         for idx, frame in enumerate(frames):
-            cam_name = os.path.join(path, frame["file_path"] + extension)
+            raw = frame["file_path"]
 
-            # NeRF 'transform_matrix' is a camera-to-world transform
-            c2w = np.array(frame["transform_matrix"])
-            # change from OpenGL/Blender camera axes (Y up, Z back) to COLMAP (Y down, Z forward)
+            base = raw if os.path.isabs(raw) else os.path.join(path, raw)
+            root, ext = os.path.splitext(base)
+
+            candidates = []
+            if ext:
+                candidates = [base]
+            else:
+                tried = set()
+                for e in [extension, ".jpg", ".png"]:
+                    if e and e not in tried:
+                        candidates.append(root + e)
+                        tried.add(e)
+
+            image = None
+            image_path = None
+            for cand in candidates:
+                if os.path.exists(cand):
+                    image_path = cand
+                    try:
+                        image = Image.open(cand)
+                    except Exception:
+                        image = None
+                    break
+            if image_path is None:
+                image_path = candidates[0]  
+
+            if image is not None:
+                im_data = np.array(image.convert("RGBA"))
+                bg = np.array([1, 1, 1]) if white_background else np.array([0, 0, 0])
+                norm = im_data / 255.0
+                rgb = norm[:, :, :3] * norm[:, :, 3:4] + bg * (1.0 - norm[:, :, 3:4])
+                image = Image.fromarray(np.array(rgb * 255.0, dtype=np.uint8), "RGB")
+                width, height = image.size
+            else:
+                if not is_test:
+                    raise FileNotFoundError(f"Image not found for train frame. Tried: {candidates}")
+
+                width, height = w, h
+
+
+            c2w = np.array(frame["transform_matrix"], dtype=np.float64)
             c2w[:3, 1:3] *= -1
-
-            # get the world-to-camera transform and set R, T
             w2c = np.linalg.inv(c2w)
-            R = np.transpose(w2c[:3,:3])  # R is stored transposed due to 'glm' in CUDA code
+            R = np.transpose(w2c[:3, :3])
             T = w2c[:3, 3]
-
-            image_path = os.path.join(path, cam_name)
-            image_name = Path(cam_name).stem
-            image = Image.open(image_path)
-
-            im_data = np.array(image.convert("RGBA"))
-
-            bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
-
-            norm_data = im_data / 255.0
-            arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
-            image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
-
-            fovy = focal2fov(fov2focal(fovx, image.size[0]), image.size[1])
-            FovY = fovy 
+            
             FovX = fovx
+            FovY = focal2fov(fov2focal(FovX, width), height)
 
+            image_name = Path(image_path).stem
             depth_path = os.path.join(depths_folder, f"{image_name}.png") if depths_folder != "" else ""
 
-            cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX,
-                            image_path=image_path, image_name=image_name,
-                            width=image.size[0], height=image.size[1], depth_path=depth_path, depth_params=None, is_test=is_test))
-            
+            cam_infos.append(CameraInfo(
+                uid=idx, R=R, T=T, FovY=FovY, FovX=FovX,
+                depth_params=None, image_path=image_path, image_name=image_name,
+                depth_path=depth_path, width=width, height=height, is_test=is_test
+            ))
+
     return cam_infos
 
 def readNerfSyntheticInfo(path, white_background, depths, eval, extension=".png"):
+    ext_hint = os.environ.get("GS_IMAGES_EXT", None)
+    if ext_hint is not None and ext_hint != "":
+        extension = ext_hint if ext_hint.startswith(".") else f".{ext_hint}"
 
     depths_folder=os.path.join(path, depths) if depths != "" else ""
     print("Reading Training Transforms")
@@ -282,19 +318,21 @@ def readNerfSyntheticInfo(path, white_background, depths, eval, extension=".png"
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
 
-    nerf_normalization = getNerfppNorm(train_cam_infos)
+    norm_inputs = train_cam_infos if len(train_cam_infos) > 0 else test_cam_infos
+    if len(norm_inputs) == 0:
+        nerf_normalization = {"translate": np.zeros((3,1)), "radius": 1.0}
+    else:
+        nerf_normalization = getNerfppNorm(norm_inputs)
+
 
     ply_path = os.path.join(path, "points3d.ply")
     if not os.path.exists(ply_path):
         # Since this data set has no colmap data, we start with random points
         num_pts = 100_000
         print(f"Generating random point cloud ({num_pts})...")
-        
-        # We create random points inside the bounds of the synthetic Blender scenes
         xyz = np.random.random((num_pts, 3)) * 2.6 - 1.3
         shs = np.random.random((num_pts, 3)) / 255.0
         pcd = BasicPointCloud(points=xyz, colors=SH2RGB(shs), normals=np.zeros((num_pts, 3)))
-
         storePly(ply_path, xyz, SH2RGB(shs) * 255)
     try:
         pcd = fetchPly(ply_path)

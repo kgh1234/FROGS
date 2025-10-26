@@ -10,6 +10,7 @@
 #
 
 import os
+import shutil
 import random
 import json
 from utils.system_utils import searchForMaxIteration
@@ -40,13 +41,36 @@ class Scene:
         self.train_cameras = {}
         self.test_cameras = {}
 
-        if os.path.exists(os.path.join(args.source_path, "sparse")):
+        src = args.source_path
+        tf_train = os.path.join(src, "transforms_train.json")
+        tf_test = os.path.join(src, "transforms_test.json")
+        tf_single = os.path.join(src, "transforms.json")
+        cam_json = os.path.join(src, "camera.json")
+
+        if os.path.exists(os.path.join(src, "sparse")):
+            # COLMAP 포맷
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
-        elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
-            print("Found transforms_train.json file, assuming Blender data set!")
-            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.depths, args.eval)
+
         else:
-            assert False, "Could not recognize scene type!"
+            # Blender-family 포맷들 처리
+            if os.path.exists(tf_train):
+                scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.depths, args.eval)
+
+            elif os.path.exists(tf_single):
+                # 일부 코드 경로가 test/train 파일을 기대할 수 있으므로, 없으면 test로 복사(무해)
+                if not os.path.exists(tf_test):
+                    shutil.copy(tf_single, tf_test)
+                scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.depths, args.eval)
+
+            elif os.path.exists(tf_test):
+                scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.depths, args.eval)
+
+            elif os.path.exists(cam_json):
+                if not os.path.exists(tf_test):
+                    shutil.copy(cam_json, tf_test)
+                scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.depths, args.eval)
+            else:
+                assert False, "Could not recognize scene type!"
 
         if not self.loaded_iter:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:

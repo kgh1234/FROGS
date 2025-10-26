@@ -14,11 +14,25 @@ import numpy as np
 from utils.graphics_utils import fov2focal
 from PIL import Image
 import cv2
+import os
 
 WARNED = False
 
 def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dataset):
-    image = Image.open(cam_info.image_path)
+    
+    
+    image = None
+    if cam_info.image_path and os.path.exists(cam_info.image_path):
+        image = Image.open(cam_info.image_path).convert("RGB")
+    else:
+        if is_test_dataset:
+            w = int(cam_info.width) if cam_info.width is not None else 1600
+            h = int(cam_info.height) if cam_info.height is not None else 900
+            bg_val = 255 if args.white_background else 0
+            image = Image.fromarray(np.full((h, w, 3), bg_val, dtype=np.uint8), mode="RGB")
+        else:
+            raise FileNotFoundError(f"Image not found: {cam_info.image_path}")
+
 
     if cam_info.depth_path != "":
         try:
