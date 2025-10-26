@@ -4,7 +4,7 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="DTU_error"
+SCENE_NAME="lerf_mask"
 ROOT="../../masked_datasets/$SCENE_NAME"
 OUTPUT_ROOT="../../output_dtu/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
