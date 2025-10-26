@@ -23,8 +23,13 @@ for SCENE_PATH in "$ROOT"/*; do
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
 
+
         for ITER in "${ITERS[@]}"; do
             OUT_DIR="$OUTPUT_ROOT/${SCENE}iter${ITER}"
+            if [ -d "$OUT_DIR" ]; then
+                echo "OUT_DIR exists: $OUT_DIR"
+                continue
+            fi
 
             echo "====================================="
             echo "Processing scene: $SCENE | ITER=$ITER"
@@ -80,7 +85,7 @@ for SCENE_PATH in "$ROOT"/*; do
             LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
 
             # Google Sheet 업데이트
-            python ../../update_sheet.py "$SHEET_NAME" "${SCENE}${ITER}" "$SSIM" "$PSNR" "$LPIPS" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX" "$GAUSSIAN_COUNT"
+            python ../../update_sheet.py "$SHEET_NAME" "${SCENE}/${ITER}" "$SSIM" "$PSNR" "$LPIPS" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX" "$GAUSSIAN_COUNT"
 
             # CSV 작성
             if [ ! -f "$CSV_FILE" ]; then
