@@ -4,11 +4,11 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="mipnerf"
+SCENE_NAME="DTU_error"
 ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_all/$SCENE_NAME"
+OUTPUT_ROOT="../../output_dtu/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="output_all"
+SHEET_NAME="output_dtu"
 
 
 export CUDA_VISIBLE_DEVICES=0
@@ -33,7 +33,7 @@ for SCENE_PATH in "$ROOT"/*; do
         nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
         VRAM_PID=$!
 
-        python train_pruning.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 600 700 800 --eval
+        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 600 700 800 --eval
 
         TRAIN_END=$(date +%s)
         TRAIN_TIME=$((TRAIN_END - TRAIN_START))
