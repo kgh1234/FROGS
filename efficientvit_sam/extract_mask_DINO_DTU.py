@@ -14,14 +14,14 @@ from groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
 from efficientvit.sam_model_zoo import create_efficientvit_sam_model
 from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
 
-DTU_ROOT = '../../dtu'
+DTU_ROOT = '../../masked_datasets/DTU'
 # ====== PATHS ======
 CONFIG_FILE = "../../GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py"
 CHECKPOINT_PATH = "../../GroundingDINO/weights/groundingdino_swint_ogc.pth"
 SAM_CKPT = "../efficientvit_sam/weight/efficientvit_sam_xl1.pt"
 DATASET_ROOT = DTU_ROOT
 OUTPUT_ROOT = DTU_ROOT
-PROMPT_JSON = f"{DTU_ROOT}/prompt_1to5.json"
+PROMPT_JSON = f"{DTU_ROOT}/prompt_all.json"
 
 CPU_ONLY = False
 
