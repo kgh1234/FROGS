@@ -1,8 +1,6 @@
 import os, cv2, numpy as np
 from pathlib import Path
-
-ROOT = '/workspace/masked_datasets/dtu'
-
+ROOT = '../../output_all/lerf_mask/figurines_36/1025_0312/test/'
 scenelist = os.listdir(ROOT)
 
 for scene in scenelist:
@@ -13,7 +11,7 @@ for scene in scenelist:
         continue
     
 
-    ori_dir = scene_dir / "images_ori"
+    ori_dir = scene_dir / "hemisphere_render"
     mask_dir = scene_dir / "mask"
     out_dir = scene_dir / "images"
     
