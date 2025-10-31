@@ -22,6 +22,7 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
+from scene.mask_readers import _find_mask_path, _load_binary_mask
 
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
@@ -454,53 +455,77 @@ class GaussianModel:
         
         
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii,
-                        mask=None,
-                        viewpoint_camera=None,
-                        iter=None,
-                        mask_prune_iter=1500,
-                        ):
-        
+                    mask_dir=None,
+                    scene=None,
+                    iter=None,
+                    mask_prune_iter=[1500],
+                    mask_invert=False,
+                    prune_ratio=0.8):
         
 
         self.tmp_radii = radii
-        prune_ratio = 0.8
-        # ----------------------- mask-based pruning -----------------------
-        if mask is not None and mask_prune_iter is not None and iter in mask_prune_iter:
-            H, W = mask.shape[-2], mask.shape[-1]
 
-            # === COLMAP 기반 projection ===
-            uv = viewpoint_camera.project_to_screen(self.get_xyz)
-            u, v = uv[:, 0].long(), uv[:, 1].long()
-            num_points = self.get_xyz.shape[0]
-            valid = (radii > 0)
-            valid_idx = torch.nonzero(valid, as_tuple=False).squeeze(-1)
-            u_valid, v_valid = u[valid_idx], v[valid_idx]
+        # ----------------------- global mask-based pruning -----------------------
+        if mask_dir is not None and mask_prune_iter is not None and iter in mask_prune_iter:
+            print(f"[MaskPrune@{iter}] Start global mask-based pruning...")
 
-            # === mask sampling ===
-            if mask.ndim == 3:
-                mask = mask.mean(dim=0)
-            mask_vals = torch.zeros_like(valid, dtype=torch.float32, device=valid.device)
-            mask_vals[valid_idx] = mask[v_valid.clamp(0, H-1), u_valid.clamp(0, W-1)]
+            # === Prepare ===
+            xyz = self.get_xyz.detach()  # (N,3)
+            num_points = xyz.shape[0]
+            device = xyz.device
 
+            overlap_sum = torch.zeros(num_points, device=device)
+            view_count = torch.zeros_like(overlap_sum)
 
-            num_points = mask_vals.numel()
+            # === Iterate all train views ===
+            views = scene.getTrainCameras()[:]  # 모든 카메라
+            for v in views:
+                H, W = v.image_height, v.image_width
+                mask_path = _find_mask_path(mask_dir, v.image_name)
+                if not mask_path:
+                    continue
+
+                mask = _load_binary_mask(mask_path, H, W, invert=mask_invert, device=device)
+                uv = v.project_to_screen(xyz)
+                u, v_ = uv[:, 0].long(), uv[:, 1].long()
+
+                valid = (u >= 0) & (u < W) & (v_ >= 0) & (v_ < H)
+                if valid.sum() == 0:
+                    continue
+
+                u_valid, v_valid = u[valid], v_[valid]
+                mask_vals = torch.zeros(num_points, device=device)
+                mask_vals[valid] = mask[v_valid, u_valid].float()
+
+                overlap_sum += mask_vals
+                view_count += valid.float()
+
+            # === Compute overlap ratio ===
+            overlap_ratio = overlap_sum / (view_count + 1e-6)
+            overlap_ratio[overlap_ratio.isnan()] = 0.0
+
+            # === Sort & prune lowest overlap ===
             num_prune = int(num_points * prune_ratio)
-
-            sorted_vals, sorted_idx = torch.sort(mask_vals)
+            sorted_vals, sorted_idx = torch.sort(overlap_ratio)
             prune_idx = sorted_idx[:num_prune]
 
-
-            prune_mask = torch.zeros_like(mask_vals, dtype=torch.bool)
+            prune_mask = torch.zeros(num_points, dtype=torch.bool, device=device)
             prune_mask[prune_idx] = True
 
             self.prune_points(prune_mask)
-            #prune_ratio *= 0.5
-            #print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
 
+            print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
+            print(f"[MaskPrune@{iter}] mean overlap={overlap_ratio.mean():.4f}, "
+                f"min={overlap_ratio.min():.4f}, max={overlap_ratio.max():.4f}")
 
-
+        # ----------------------- densify (기존 logic 유지) -----------------------
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
+
+        # 이후 기존 densify 관련 코드 유지
+        # (e.g., split, clone, or opacity-based pruning)
+
+        
         
         # ------------- original densification and pruning -----------------
         self.densify_and_clone(grads, max_grad, extent)

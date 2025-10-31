@@ -41,7 +41,7 @@ from scene.stopper import GaussianStatStopper
 from utils.mask_projection_visualization import visualize_mask_projection_with_centers
 from scene.view_consistency import compute_view_jaccard
 from scene.view_consistency import gaussian_overlap
-from FROGS.gaussian_splatting.scene.mask_readers import _find_mask_path, _load_binary_mask
+from scene.mask_readers import _find_mask_path, _load_binary_mask
 
 
 try:
@@ -124,15 +124,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             gaussians.oneupSHdegree()
             
         
-        if iteration % 3000 == 0 and iteration < opt.densify_until_iter:
-            bad_idx = compute_view_jaccard(scene, gaussians, pipe, background, threshold=0.2)
-            if len(bad_idx) > 0:
-                train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
-                print(f"[Iter {iteration}] Removed {len(bad_idx)} low-consistency views from training.")
-                for i in bad_idx:
-                    img_name = getattr(scene.getTrainCameras()[i], "image_name", None)
-                    print(f"  → excluded {img_name}")
-                print(f"[INFO] Remaining training views: {len(train_views)}")
+        # if iteration % 3000 == 0 and iteration < opt.densify_until_iter:
+        #     bad_idx = compute_view_jaccard(scene, gaussians, pipe, background, threshold=0.2)
+        #     if len(bad_idx) > 0:
+        #         train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
+        #         print(f"[Iter {iteration}] Removed {len(bad_idx)} low-consistency views from training.")
+        #         for i in bad_idx:
+        #             img_name = getattr(scene.getTrainCameras()[i], "image_name", None)
+        #             print(f"  → excluded {img_name}")
+        #         print(f"[INFO] Remaining training views: {len(train_views)}")
 
 
         # Pick a random Camera
@@ -236,10 +236,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                     gaussians.densify_and_prune(
                         opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii, 
-                        mask=mask if use_mask else None,
-                        viewpoint_camera=viewpoint_cam,
+                        mask_dir=mask_dir if use_mask else None,
+                        scene=scene,
+                        # viewpoint_camera=viewpoint_cam,
                         iter=iteration,
-                        mask_prune_iter=[]
+                        mask_prune_iter=[600]
                     )
                     
                 
@@ -260,18 +261,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     gaussians.optimizer.zero_grad(set_to_none = True)
 
 
-            if iteration % 1000 == 0:  
-                gaussian_overlap(scene, gaussians, mask_dir, iteration)
-                gauss_state = {
-                    "positions": gaussians.get_xyz.detach().cpu().numpy(),
-                    "scales": gaussians.get_scaling.detach().cpu().numpy(),
-                    "opacities": gaussians.get_opacity.detach().cpu().numpy(),
-                }
-                if stopper.update(gauss_state):
-                    print(f"\n[EarlyStop] Gaussian stats converged at iteration {iteration}")
-                    print(f"[ITER {iteration}] Saving and exiting...")
-                    scene.save(iteration)
-                    break
+            # if iteration % 1000 == 0:  
+            #     gaussian_overlap(scene, gaussians, mask_dir, iteration)
+            #     gauss_state = {
+            #         "positions": gaussians.get_xyz.detach().cpu().numpy(),
+            #         "scales": gaussians.get_scaling.detach().cpu().numpy(),
+            #         "opacities": gaussians.get_opacity.detach().cpu().numpy(),
+            #     }
+            #     if stopper.update(gauss_state):
+            #         print(f"\n[EarlyStop] Gaussian stats converged at iteration {iteration}")
+            #         print(f"[ITER {iteration}] Saving and exiting...")
+            #         scene.save(iteration)
+            #         break
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
