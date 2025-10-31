@@ -38,16 +38,17 @@ def main():
     cli.add_argument("--white_background", action="store_true", help="Force white background")
     cli.add_argument("--quiet", action="store_true")
     cli.add_argument("--out_name", default="custom_render", help="Subfolder name under test/ours_xxxxx/")
-    # 품질/안정성용 추가 인자
+    cli.add_argument("--ply_path", type=str, default=None, help="Optional: directly specify a .ply path to load instead of model checkpoint")
     cli.add_argument("--sh_degree", type=int, default=3, help="Spherical Harmonics degree used in training (default: 3)")
     cli.add_argument("--resolution", type=float, default=-1, help="-1 keeps ~1600px width cap; 1=full, 2=half, 4=quarter, ...")
+    cli.add_argument("--object_number", type=int, default=0, help="Object number for multi-object scenes")
     args_cli = cli.parse_args()
 
     # ---- check camera.json ----
     if not os.path.isfile(args_cli.camera_json):
         raise FileNotFoundError(f"camera_json not found: {args_cli.camera_json}")
 
-    # ---- write camera.json -> tmp/transforms_test.json + empty transforms_train.json ----
+    # ---- temporary transforms ----
     tmpdir = tempfile.mkdtemp(prefix="3dgs_custom_")
     tf_test  = os.path.join(tmpdir, "transforms_test.json")
     tf_train = os.path.join(tmpdir, "transforms_train.json")
@@ -58,11 +59,9 @@ def main():
         if k not in data:
             raise ValueError(f"camera_json missing required field: {k}")
 
-    # test에는 camera.json 그대로
     with open(tf_test, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-    # train은 빈 frames로 생성(이미지 탐색 자체를 피함)
     empty_train = {
         "fl_x": data["fl_x"], "fl_y": data["fl_y"],
         "cx": data["cx"], "cy": data["cy"],
@@ -83,63 +82,70 @@ def main():
     parser.add_argument("--skip_train", action="store_true")
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
+    parser.add_argument('--object_number', type=int, default=0, help='Object number for multi-object scenes')
 
-    # parse default/empty, then set required fields manually
     args = parser.parse_args([])
 
-    # required fields for Scene/loader
+    # fill args from CLI
     args.source_path = tmpdir
     args.model_path  = args_cli.model_path
-    args.images      = args_cli.images_ext   # used when file_path has no extension
-    args.eval        = True                  # enable test split
-    args.skip_train  = True                  # skip train (no GT)
-    args.skip_test   = False                 # render test
+    args.images      = args_cli.images_ext
+    args.eval        = True
+    args.skip_train  = True
+    args.skip_test   = False
     args.iteration   = args_cli.iteration
     args.quiet       = args_cli.quiet
-    args.depths      = ""                    # must be string
-    # defaults
-    if not hasattr(args, "white_background"):
-        args.white_background = False
-    if args_cli.white_background:
-        args.white_background = True
-    if not hasattr(args, "train_test_exp"):
-        args.train_test_exp = False
-    # 메모리 안정성 옵션
-    args.data_device = "cpu"                 # 카메라/이미지 텐서는 CPU (VRAM OOM 회피)
-    # 해상도 파이프라인 반영
+    args.depths      = ""
+    args.white_background = args_cli.white_background
+    args.train_test_exp   = False
+    args.data_device = "cpu"
     args.resolution  = args_cli.resolution
-    if not hasattr(args, "downsample") or args.downsample is None:
-        args.downsample = 1.0
-    # 🔴 SH 차수 기본값 강제 (None 방지)
-    args.sh_degree = int(args_cli.sh_degree)
+    args.downsample  = 1.0
+    args.sh_degree   = int(args_cli.sh_degree)
+    args.object_number = args_cli.object_number  # FIX: CLI 값 전달
 
     print(f"[Info] model_path        : {args.model_path}")
-    print(f"[Info] source_path (tmp) : {args.source_path}")
-    print(f"[Info] images ext assume : {args.images}")
+    print(f"[Info] camera_json       : {args_cli.camera_json}")
     print(f"[Info] iteration         : {args.iteration}")
-    print(f"[Info] white background  : {getattr(args, 'white_background', False)}")
+    print(f"[Info] ply_path          : {args_cli.ply_path}")
+    print(f"[Info] white background  : {args.white_background}")
+    print(f"[Info] object_number     : {args.object_number}")
 
-    # 확장자 힌트를 환경변수로 리더에게 전달 (.jpg/.png 등)
     os.environ["GS_IMAGES_EXT"] = args.images
 
     # ---- init & load ----
     safe_state(args.quiet)
     with torch.no_grad():
-        # extract()는 내부 파서 기본값 적용하면서 필요한 필드만 살려서 전달
         extracted_model_args = model.extract(args)
-        extracted_model_args.sh_degree = args.sh_degree  # 안전빵으로 한 번 더 보강
+        extracted_model_args.sh_degree = args.sh_degree
+        g = GaussianModel(extracted_model_args.sh_degree)
 
-        g  = GaussianModel(extracted_model_args.sh_degree)
-        sc = Scene(extracted_model_args, g, load_iteration=args.iteration, shuffle=False)
+        # scene_name 먼저 결정 (이후 name 구성에 사용)
+        scene_name = os.path.basename(os.path.normpath(extracted_model_args.model_path))
+
+        # object_number에 따라 출력 name 구성
+        if args.object_number > 0:
+            name = f"test/{scene_name}_{args.object_number}"
+        else:
+            name = "test"
+
+        # PLY 직접 지정 시
+        if args_cli.ply_path is not None and os.path.isfile(args_cli.ply_path):
+            print(f"[Info] Using custom PLY path: {args_cli.ply_path}")
+            g.load_ply(args_cli.ply_path)
+            sc = Scene(extracted_model_args, g, load_iteration=None, shuffle=False)
+            sc.loaded_iter = args_cli.iteration if args_cli.iteration > 0 else 0
+        else:
+            print("[Info] No custom ply_path provided — loading from model directory")
+            sc = Scene(extracted_model_args, g, load_iteration=args.iteration, shuffle=False)
 
         bg_color   = [1,1,1] if extracted_model_args.white_background else [0,0,0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-
-        # ---- render ONLY test views; save only renders ----
         extracted_pipeline_args = pipeline.extract(args)
+
         render_set_only_renders(
             model_path=extracted_model_args.model_path,
-            name="test",
+            name=name,
             iteration=sc.loaded_iter,
             views=sc.getTestCameras(),
             gaussians=g,

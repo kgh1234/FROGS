@@ -498,31 +498,6 @@ class GaussianModel:
             #print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
 
 
-        # import matplotlib.pyplot as plt
-
-        # if iter == mask_prune_iter:
-        #     # detach & move to CPU for visualization
-        #     u_vis = u.detach().cpu().numpy()
-        #     v_vis = v.detach().cpu().numpy()
-        #     mask_np = mask.detach().cpu().numpy()
-
-        #     # prune_mask: True → red (pruned), False → green (kept)
-        #     prune_np = prune_mask.detach().cpu().numpy()
-
-        #     plt.figure(figsize=(8, 6))
-        #     plt.imshow(mask_np, cmap='gray')
-        #     plt.scatter(u_vis[~prune_np], v_vis[~prune_np], s=1, c='lime', label='kept (inside mask)', alpha=0.4)
-        #     plt.scatter(u_vis[prune_np], v_vis[prune_np], s=1, c='red', label='pruned (outside mask)', alpha=0.4)
-        #     plt.gca().invert_yaxis()
-        #     plt.title(f"Mask-based Pruning Visualization @ iter {iter}")
-        #     plt.legend(loc='upper right')
-        #     plt.tight_layout()
-
-        #     save_path = f"debug/visualization_mask_prune_iter{iter}.png"
-        #     plt.savefig(save_path, dpi=200)
-        #     plt.close()
-        #     print(f"[MaskPrune] Visualization saved to {save_path}")
-
 
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
@@ -551,60 +526,8 @@ class GaussianModel:
 
         torch.cuda.empty_cache()
 
-
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
 
 
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-import numpy as np
-import torch, os
-import matplotlib.pyplot as plt
-import torch
-import numpy as np
-import os
-
-def visualize_mask_projection_with_centers(xy_proj, mask_img, save_path="debug/mask_check.png", point_size=5):
-    """
-    Visualize Gaussian 2D projections over mask image.
-
-    Args:
-        xy_proj (torch.Tensor): (N,2) projected coordinates (u,v)
-        mask_img (torch.Tensor or np.ndarray): [H,W] or [1,H,W]
-        save_path (str): output file path
-    """
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    # Convert mask → numpy grayscale
-    if isinstance(mask_img, torch.Tensor):
-        mask_np = mask_img.detach().cpu().numpy()
-    else:
-        mask_np = mask_img
-
-    if mask_np.ndim == 3:
-        mask_np = mask_np[0]  # [1,H,W]
-
-    H, W = mask_np.shape
-    plt.figure(figsize=(8, 6))
-    plt.imshow(mask_np, cmap='gray', origin='upper')
-
-    # Valid points only (inside image)
-    u = torch.round(xy_proj[:, 0]).long()
-    v = torch.round(xy_proj[:, 1]).long()
-
-    valid = (u >= 0) & (u < W) & (v >= 0) & (v < H)
-
-    u_valid = u[valid].cpu().numpy()
-    v_valid = v[valid].cpu().numpy()
-
-    plt.scatter(u_valid, v_valid, s=point_size, c='red', alpha=0.7)
-
-    plt.title(f"Mask projection check ({len(u_valid)} / {len(u)} visible)")
-    plt.axis('off')
-    plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
-    plt.close()
-
-    print(f"[Saved] Projection visualization → {save_path}")
