@@ -8,7 +8,6 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
 import matplotlib
 from utils.mask_projection_visualization import visualize_mask_overlap_on_mask, visualize_mask_projection_with_centers
 from scene.pruning_color import auto_brightness_compensation, auto_brightness_saturation_compensation
@@ -488,6 +487,10 @@ class GaussianModel:
             view_count = torch.zeros_like(overlap_sum)
             views = scene.getTrainCameras()[:]
 
+            # ==============================
+            # View-wise Mask Accumulation
+            # ==============================
+            mask_coverage_all = []
             for v in views:
                 H, W = v.image_height, v.image_width
                 mask_path = _find_mask_path(mask_dir, v.image_name)
@@ -495,10 +498,11 @@ class GaussianModel:
                     continue
 
                 mask = _load_binary_mask(mask_path, H, W, invert=mask_invert).cpu().numpy()
+                mask_coverage_all.append(mask.mean())  # 흰색(=object) 비율 기록
+
                 uv = v.project_to_screen(xyz)
                 u = uv[:, 0].long()
                 v_ = uv[:, 1].long()
-
                 valid = (u >= 0) & (u < W) & (v_ >= 0) & (v_ < H)
                 if valid.sum() == 0:
                     continue
@@ -512,9 +516,11 @@ class GaussianModel:
 
             overlap_ratio = overlap_sum / (view_count + 1e-6)
             overlap_ratio[overlap_ratio.isnan()] = 0.0
+            avg_mask_ratio = np.mean(mask_coverage_all) if len(mask_coverage_all) > 0 else 0.5
 
             print(f"[Debug] overlap_ratio stats → min={overlap_ratio.min().item():.4f}, "
                 f"max={overlap_ratio.max().item():.4f}, mean={overlap_ratio.mean().item():.4f}")
+            print(f"[Debug] avg_mask_ratio={avg_mask_ratio:.3f}")
 
             visualize_mask_overlap_on_mask(
                 xyz=self.get_xyz.detach(),
@@ -526,19 +532,43 @@ class GaussianModel:
                 save_path=os.path.join(scene.model_path, f"mask_overlap_iter{iter}.png")
             )
 
-            # === Soft Adaptive Pruning ===
+            # ==============================
+            # Adaptive Soft + Hard Pruning
+            # ==============================
             mean = overlap_ratio.mean()
             std = overlap_ratio.std()
-            adaptive_thresh = mean - 1.5 * std
-            adaptive_thresh = max(adaptive_thresh.item(), 0.05)
 
-            prune_mask = overlap_ratio < adaptive_thresh
+            # --- mask coverage에 따른 강도 조정 ---
+            coverage_scale = np.clip(avg_mask_ratio, 0.1, 1.0)
+            mask_weight = 1.0 - 0.5 * (1.0 - coverage_scale)  # 0.5~1.0
+
+            # --- overlap 분포 기반 pruning 강도 ---
+            dist_spread = (std / (mean + 1e-6)).clamp(0, 5)
+            pruning_strength = torch.tanh(dist_spread).item()  # 0~1
+            base_thresh = mean + 0.5 * std
+            base_thresh = max(base_thresh.item(), 0.002)
+
+            # --- Soft threshold: adaptive mean/std ---
+            soft_thresh = base_thresh * (1.0 - 0.6 * pruning_strength * mask_weight)
+            soft_thresh = np.clip(soft_thresh, 0.001, 0.05)
+
+            # --- Hard threshold: 5% 이하이면 무조건 제거 ---
+            hard_thresh = max(0.05 * mean.item(), 0.002)
+
+            print(f"[MaskPrune@{iter}] mean={mean:.4f}, std={std:.4f}, spread={dist_spread:.2f}, "
+                f"strength={pruning_strength:.2f}, mask_ratio={avg_mask_ratio:.2f} → "
+                f"soft_thresh={soft_thresh:.4f}, hard_thresh={hard_thresh:.4f}")
+
+            # --- Pruning mask 생성 ---
+            prune_mask = overlap_ratio < soft_thresh
+            prune_mask[overlap_ratio < hard_thresh] = True  # 완전 밖인 건 강제 제거
+
             num_prune = prune_mask.sum().item()
             num_keep = (~prune_mask).sum().item()
 
-
-            print(f"[MaskPrune@{iter}] adaptive_thresh={adaptive_thresh:.3f} (mean={mean:.3f}, std={std:.3f})")
-            
+            # ==============================
+            # Brightness / Saturation 보정
+            # ==============================
             if iter in mask_prune_iter:
                 self._comp_state = auto_brightness_saturation_compensation(
                     scene, self, pipeline, background, state=self._comp_state
@@ -552,36 +582,8 @@ class GaussianModel:
 
             print(f"[MaskPrune@{iter}] pruned={num_prune}, kept={num_keep}")
 
-            # ==========================================================
-            # Auto-Rebalance after Pruning
-            # ==========================================================
-            with torch.no_grad():
-                if hasattr(self, "opacity") and hasattr(self, "shs"):
-                    # Opacity normalization (avoid too low / too high alpha)
-                    old_mean = self.opacity.mean().item()
-                    self.opacity.clamp_(min=1e-4, max=1.0)
-                    new_mean = self.opacity.mean().item()
-                    print(f"[AutoBalance] Opacity mean: {old_mean:.4f} → {new_mean:.4f}")
-
-                    # SH normalization (prevent desaturation)
-                    max_val = self.shs.abs().max().item()
-                    if max_val > 0:
-                        self.shs.data /= max_val
-                    print(f"[AutoBalance] SH normalized (max={max_val:.3f})")
-
-                if hasattr(self, "scaling"):
-                    # Optional: prevent vanishing tiny scales
-                    self.scaling.data = torch.clamp(self.scaling.data, min=1e-3)
-                    print("[AutoBalance] Scaling clamped min=1e-3")
-
-                # Reset optimizer momentum
-                if hasattr(self, "optimizer"):
-                    self.optimizer.zero_grad(set_to_none=True)
-                    for g in self.optimizer.param_groups:
-                        g['lr'] *= 0.5  # small warm restart
-                    print("[AutoBalance] Optimizer state reset & LR halved temporarily")
-
             return  # Early exit after mask-based pruning
+
 
 
 

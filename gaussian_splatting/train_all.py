@@ -163,7 +163,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         
         
         use_mask = mask_dir is not None and len(mask_dir) > 0
-        if use_mask:
+        if use_mask and (iteration > prune_iterations[0]):
             
             mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
             
@@ -247,7 +247,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         scene=scene,
                         viewpoint_camera=viewpoint_cam,
                         iter=iteration,
-                        mask_prune_iter=[600],
+                        mask_prune_iter=[600, 1200, 1800],
                         prune_ratio=1.0,
                         pipeline=pipe,            
                         background=background,     
@@ -255,7 +255,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
     )
                     
                 from utils.mask_projection_visualization import visualize_mask_pruning_result
-                if use_mask and iteration in [600]:
+                if use_mask and iteration in prune_iterations:
                     mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
                     if mask_path:
                         visualize_mask_pruning_result(
