@@ -8,8 +8,9 @@
 #
 # For inquiries contact  george.drettakis@inria.fr
 #
-
 import matplotlib
+from utils.mask_projection_visualization import visualize_mask_overlap_on_mask, visualize_mask_projection_with_centers
+from scene.pruning_color import auto_brightness_compensation, auto_brightness_saturation_compensation
 import torch
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
@@ -22,6 +23,7 @@ from utils.sh_utils import RGB2SH
 from simple_knn._C import distCUDA2
 from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
+from scene.mask_readers import _find_mask_path, _load_binary_mask
 
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
@@ -65,6 +67,8 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+        if not hasattr(self, "_comp_state"):
+            self._comp_state = {}
 
     def capture(self):
         return (
@@ -454,78 +458,166 @@ class GaussianModel:
         
         
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii,
-                        mask=None,
-                        viewpoint_camera=None,
-                        iter=None,
-                        mask_prune_iter=1500,
-                        ):
-        
+                    mask_dir=None,
+                    scene=None,
+                    iter=None,
+                    viewpoint_camera=None,
+                    mask_prune_iter=[600],
+                    mask_invert=False,
+                    prune_ratio=0.8,
+                    mask_threshold=0.3,
+                    pipeline=None,      
+                    background=None,     
+                    prev_brightness=None):  
+
         
 
         self.tmp_radii = radii
-        prune_ratio = 0.8
-        # ----------------------- mask-based pruning -----------------------
-        if mask is not None and mask_prune_iter is not None and iter in mask_prune_iter:
-            H, W = mask.shape[-2], mask.shape[-1]
+        xyz = self.get_xyz.detach()
+        num_points = xyz.shape[0]
+        device = xyz.device
 
-            # === COLMAP 기반 projection ===
-            uv = viewpoint_camera.project_to_screen(self.get_xyz)
-            u, v = uv[:, 0].long(), uv[:, 1].long()
-            num_points = self.get_xyz.shape[0]
-            valid = (radii > 0)
-            valid_idx = torch.nonzero(valid, as_tuple=False).squeeze(-1)
-            u_valid, v_valid = u[valid_idx], v[valid_idx]
+        # ==========================================================
+        # Global mask-based pruning
+        # ==========================================================
+        if mask_dir is not None and mask_prune_iter is not None and iter in mask_prune_iter:
+            print(f"[MaskPrune@{iter}] Start global mask-based pruning...")
 
-            # === mask sampling ===
-            if mask.ndim == 3:
-                mask = mask.mean(dim=0)
-            mask_vals = torch.zeros_like(valid, dtype=torch.float32, device=valid.device)
-            mask_vals[valid_idx] = mask[v_valid.clamp(0, H-1), u_valid.clamp(0, W-1)]
+            overlap_sum = torch.zeros(xyz.shape[0], device=xyz.device)
+            view_count = torch.zeros_like(overlap_sum)
+            views = scene.getTrainCameras()[:]
 
+            # ==============================
+            # View-wise Mask Accumulation
+            # ==============================
+            mask_coverage_all = []
+            for v in views:
+                H, W = v.image_height, v.image_width
+                mask_path = _find_mask_path(mask_dir, v.image_name)
+                if not mask_path:
+                    continue
 
-            num_points = mask_vals.numel()
-            num_prune = int(num_points * prune_ratio)
+                mask = _load_binary_mask(mask_path, H, W, invert=mask_invert).cpu().numpy()
+                mask_coverage_all.append(mask.mean())  # 흰색(=object) 비율 기록
 
-            sorted_vals, sorted_idx = torch.sort(mask_vals)
-            prune_idx = sorted_idx[:num_prune]
+                uv = v.project_to_screen(xyz)
+                u = uv[:, 0].long()
+                v_ = uv[:, 1].long()
+                valid = (u >= 0) & (u < W) & (v_ >= 0) & (v_ < H)
+                if valid.sum() == 0:
+                    continue
 
+                u_idx = u[valid].cpu().numpy()
+                v_idx = v_[valid].cpu().numpy()
+                mask_vals = mask[v_idx, u_idx]
 
-            prune_mask = torch.zeros_like(mask_vals, dtype=torch.bool)
-            prune_mask[prune_idx] = True
+                overlap_sum[valid] += torch.tensor(mask_vals, device=xyz.device)
+                view_count[valid] += 1.0
+
+            overlap_ratio = overlap_sum / (view_count + 1e-6)
+            overlap_ratio[overlap_ratio.isnan()] = 0.0
+            avg_mask_ratio = np.mean(mask_coverage_all) if len(mask_coverage_all) > 0 else 0.5
+
+            print(f"[Debug] overlap_ratio stats → min={overlap_ratio.min().item():.4f}, "
+                f"max={overlap_ratio.max().item():.4f}, mean={overlap_ratio.mean().item():.4f}")
+            print(f"[Debug] avg_mask_ratio={avg_mask_ratio:.3f}")
+
+            visualize_mask_overlap_on_mask(
+                xyz=self.get_xyz.detach(),
+                scene=scene,
+                overlap_sum=overlap_sum,
+                view_count=view_count,
+                mask_dir=mask_dir,
+                mask_invert=mask_invert,
+                save_path=os.path.join(scene.model_path, f"mask_overlap_iter{iter}.png")
+            )
+
+            # ==============================
+            # Adaptive Soft + Hard Pruning
+            # ==============================
+            mean = overlap_ratio.mean()
+            std = overlap_ratio.std()
+
+            # --- mask coverage에 따른 강도 조정 ---
+            coverage_scale = np.clip(avg_mask_ratio, 0.1, 1.0)
+            mask_weight = 1.0 - 0.5 * (1.0 - coverage_scale)  # 0.5~1.0
+
+            # --- overlap 분포 기반 pruning 강도 ---
+            dist_spread = (std / (mean + 1e-6)).clamp(0, 5)
+            pruning_strength = torch.tanh(dist_spread).item()  # 0~1
+            base_thresh = mean + 0.5 * std
+            base_thresh = max(base_thresh.item(), 0.002)
+
+            # --- Soft threshold: adaptive mean/std ---
+            soft_thresh = base_thresh * (1.0 - 0.6 * pruning_strength * mask_weight)
+            soft_thresh = np.clip(soft_thresh, 0.001, 0.05)
+
+            # --- Hard threshold: 5% 이하이면 무조건 제거 ---
+            hard_thresh = max(0.05 * mean.item(), 0.002)
+
+            print(f"[MaskPrune@{iter}] mean={mean:.4f}, std={std:.4f}, spread={dist_spread:.2f}, "
+                f"strength={pruning_strength:.2f}, mask_ratio={avg_mask_ratio:.2f} → "
+                f"soft_thresh={soft_thresh:.4f}, hard_thresh={hard_thresh:.4f}")
+
+            # --- Pruning mask 생성 ---
+            prune_mask = overlap_ratio < soft_thresh
+            prune_mask[overlap_ratio < hard_thresh] = True  # 완전 밖인 건 강제 제거
+
+            num_prune = prune_mask.sum().item()
+            num_keep = (~prune_mask).sum().item()
+
+            # ==============================
+            # Brightness / Saturation 보정
+            # ==============================
+            if iter in mask_prune_iter:
+                self._comp_state = auto_brightness_saturation_compensation(
+                    scene, self, pipeline, background, state=self._comp_state
+                )
 
             self.prune_points(prune_mask)
-            #prune_ratio *= 0.5
-            #print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
+
+            self._comp_state = auto_brightness_saturation_compensation(
+                scene, self, pipeline, background, state=self._comp_state
+            )
+
+            print(f"[MaskPrune@{iter}] pruned={num_prune}, kept={num_keep}")
+
+            return  # Early exit after mask-based pruning
 
 
-        # import matplotlib.pyplot as plt
-
-        # if iter == mask_prune_iter:
-        #     # detach & move to CPU for visualization
-        #     u_vis = u.detach().cpu().numpy()
-        #     v_vis = v.detach().cpu().numpy()
-        #     mask_np = mask.detach().cpu().numpy()
-
-        #     # prune_mask: True → red (pruned), False → green (kept)
-        #     prune_np = prune_mask.detach().cpu().numpy()
-
-        #     plt.figure(figsize=(8, 6))
-        #     plt.imshow(mask_np, cmap='gray')
-        #     plt.scatter(u_vis[~prune_np], v_vis[~prune_np], s=1, c='lime', label='kept (inside mask)', alpha=0.4)
-        #     plt.scatter(u_vis[prune_np], v_vis[prune_np], s=1, c='red', label='pruned (outside mask)', alpha=0.4)
-        #     plt.gca().invert_yaxis()
-        #     plt.title(f"Mask-based Pruning Visualization @ iter {iter}")
-        #     plt.legend(loc='upper right')
-        #     plt.tight_layout()
-
-        #     save_path = f"debug/visualization_mask_prune_iter{iter}.png"
-        #     plt.savefig(save_path, dpi=200)
-        #     plt.close()
-        #     print(f"[MaskPrune] Visualization saved to {save_path}")
 
 
+        # ==========================================================
+        # Gradient computation
+        # ==========================================================
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
+        grad_norm = torch.norm(grads, dim=1)
+
+        # ==========================================================
+        # Local mask-based densification suppression
+        # ==========================================================
+        if viewpoint_camera is not None and mask_dir is not None:
+            xyz = self.get_xyz.detach()
+            num_points = xyz.shape[0]
+            device = xyz.device
+                    
+            mask_path = _find_mask_path(mask_dir, viewpoint_camera.image_name)
+            if mask_path:
+                H, W = viewpoint_camera.image_height, viewpoint_camera.image_width
+                mask = _load_binary_mask(mask_path, H, W, invert=mask_invert, device=device)
+
+                uv = viewpoint_camera.project_to_screen(xyz)
+                u, v_ = uv[:, 0].long(), uv[:, 1].long()
+                valid = (u >= 0) & (u < W) & (v_ >= 0) & (v_ < H)
+
+                mask_vals = torch.zeros(num_points, device=device)
+                mask_vals[valid] = mask[v_[valid], u[valid]].float()
+
+                outside_mask = (mask_vals < mask_threshold)
+                grad_norm[outside_mask] = 0.0
+
+        
         
         # ------------- original densification and pruning -----------------
         self.densify_and_clone(grads, max_grad, extent)
@@ -540,71 +632,16 @@ class GaussianModel:
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
             
             
-        remain_before = self.get_xyz.shape[0]
         self.prune_points(prune_mask)
-        remain_after = self.get_xyz.shape[0]
         
-        #print(f"[Original prune] {remain_before - remain_after} removed → {remain_after} remain")
         
         tmp_radii = self.tmp_radii
         self.tmp_radii = None
 
         torch.cuda.empty_cache()
 
-
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
 
 
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-import numpy as np
-import torch, os
-import matplotlib.pyplot as plt
-import torch
-import numpy as np
-import os
-
-def visualize_mask_projection_with_centers(xy_proj, mask_img, save_path="debug/mask_check.png", point_size=5):
-    """
-    Visualize Gaussian 2D projections over mask image.
-
-    Args:
-        xy_proj (torch.Tensor): (N,2) projected coordinates (u,v)
-        mask_img (torch.Tensor or np.ndarray): [H,W] or [1,H,W]
-        save_path (str): output file path
-    """
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-
-    # Convert mask → numpy grayscale
-    if isinstance(mask_img, torch.Tensor):
-        mask_np = mask_img.detach().cpu().numpy()
-    else:
-        mask_np = mask_img
-
-    if mask_np.ndim == 3:
-        mask_np = mask_np[0]  # [1,H,W]
-
-    H, W = mask_np.shape
-    plt.figure(figsize=(8, 6))
-    plt.imshow(mask_np, cmap='gray', origin='upper')
-
-    # Valid points only (inside image)
-    u = torch.round(xy_proj[:, 0]).long()
-    v = torch.round(xy_proj[:, 1]).long()
-
-    valid = (u >= 0) & (u < W) & (v >= 0) & (v < H)
-
-    u_valid = u[valid].cpu().numpy()
-    v_valid = v[valid].cpu().numpy()
-
-    plt.scatter(u_valid, v_valid, s=point_size, c='red', alpha=0.7)
-
-    plt.title(f"Mask projection check ({len(u_valid)} / {len(u)} visible)")
-    plt.axis('off')
-    plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
-    plt.close()
-
-    print(f"[Saved] Projection visualization → {save_path}")
