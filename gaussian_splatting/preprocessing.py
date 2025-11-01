@@ -1,7 +1,7 @@
 import os, cv2, numpy as np
 from pathlib import Path
 
-ROOT = '/workspace/masked_datasets/dtu'
+ROOT = '../../masked_datasets/DTU_chaewon'
 
 scenelist = os.listdir(ROOT)
 
@@ -14,13 +14,13 @@ for scene in scenelist:
     
 
     ori_dir = scene_dir / "images_ori"
-    mask_dir = scene_dir / "mask"
+    mask_dir = scene_dir / "masks"
     out_dir = scene_dir / "images"
     
     if ori_dir.exists():
         print("already exists:", scene)
-        #continue
-    #os.rename(scene_dir / "images", scene_dir / "images_ori")
+        continue
+    os.rename(scene_dir / "images", scene_dir / "images_ori")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for fname in sorted(os.listdir(ori_dir)):
@@ -33,12 +33,14 @@ for scene in scenelist:
         base = Path(fname).stem
         mask_path = None
         for ext in [".png", ".jpg", ".jpeg"]:
-            p = mask_dir / f"{base}{ext}"
+            p = mask_dir / f"{base}_mask{ext}"
             if p.exists():
                 mask_path = p
             break
         img = cv2.imread(str(img_path))
         mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+        H, W = img.shape[:2]
+        mask = cv2.resize(mask, (W, H), interpolation=cv2.INTER_NEAREST)
         if img is None:
             print(f"이미지 읽기 실패: {fname}")
             continue
