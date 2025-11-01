@@ -25,9 +25,14 @@ def _find_mask_path(mask_dir: str, image_name_or_path: str):
 
 def _load_binary_mask(mask_path: str, H: int, W: int, binary_threshold=32, invert=False, device="cuda"):
     m = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-    m = cv2.flip(m, 0)
+    #m = cv2.flip(m, 0)
     if m is None:
         raise RuntimeError(f"Cannot read mask: {mask_path}")
+    
+    if m.shape[0] == W and m.shape[1] == H:
+        print(f"[MaskFix] Transposing mask (W,H)->(H,W): {mask_path}")
+        m = m.T
+
     if (m.shape[0] != H) or (m.shape[1] != W):
         m = cv2.resize(m, (W, H), interpolation=cv2.INTER_NEAREST)
     if invert:

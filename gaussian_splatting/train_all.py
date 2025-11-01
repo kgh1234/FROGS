@@ -18,6 +18,7 @@ import cv2
 import glob
 import uuid
 from tqdm import tqdm
+import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib
@@ -32,7 +33,6 @@ from gaussian_renderer import render, network_gui
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
 import uuid
-from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -158,11 +158,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             image *= alpha_mask
 
         # Loss
+        
         gt_image = viewpoint_cam.original_image.cuda()
         
         
         use_mask = mask_dir is not None and len(mask_dir) > 0
-        if use_mask and len(prune_iterations) > 0 and iteration < prune_iterations[0]:
+        if use_mask:
             
             mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
             
@@ -225,6 +226,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
+        
+
             # Densification
             if iteration < opt.densify_until_iter:
                 # Keep track of max radii in image-space for pruning
@@ -234,18 +237,37 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                    
+                    if 'prev_brightness' not in locals():
+                        prev_brightness = None
+                    
                     gaussians.densify_and_prune(
-                        opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii, 
+                        opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,
                         mask_dir=mask_dir if use_mask else None,
                         scene=scene,
-                        # viewpoint_camera=viewpoint_cam,
+                        viewpoint_camera=viewpoint_cam,
                         iter=iteration,
-                        mask_prune_iter=[600]
-                    )
+                        mask_prune_iter=[600],
+                        prune_ratio=1.0,
+                        pipeline=pipe,            
+                        background=background,     
+                        prev_brightness=prev_brightness 
+    )
                     
-                
-                if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
-                    gaussians.reset_opacity()
+                from utils.mask_projection_visualization import visualize_mask_pruning_result
+                if use_mask and iteration in [600]:
+                    mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
+                    if mask_path:
+                        visualize_mask_pruning_result(
+                            xyz=gaussians.get_xyz,
+                            viewpoint_cam=viewpoint_cam,
+                            mask_path=mask_path,
+                            prune_mask=getattr(gaussians, "last_prune_mask", None)
+                            if hasattr(gaussians, "last_prune_mask") else None,
+                            invert=False,
+                            save_path=f"{scene.model_path}/debug/mask_prune_vis_iter{iteration}.png"
+                )
+
 
 
             # Optimizer step

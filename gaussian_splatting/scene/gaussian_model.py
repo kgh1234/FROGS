@@ -10,6 +10,8 @@
 #
 
 import matplotlib
+from utils.mask_projection_visualization import visualize_mask_overlap_on_mask, visualize_mask_projection_with_centers
+from scene.pruning_color import auto_brightness_compensation, auto_brightness_saturation_compensation
 import torch
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
@@ -66,6 +68,8 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+        if not hasattr(self, "_comp_state"):
+            self._comp_state = {}
 
     def capture(self):
         return (
@@ -458,72 +462,158 @@ class GaussianModel:
                     mask_dir=None,
                     scene=None,
                     iter=None,
-                    mask_prune_iter=[1500],
+                    viewpoint_camera=None,
+                    mask_prune_iter=[600],
                     mask_invert=False,
-                    prune_ratio=0.8):
+                    prune_ratio=0.8,
+                    mask_threshold=0.3,
+                    pipeline=None,      
+                    background=None,     
+                    prev_brightness=None):  
+
         
 
         self.tmp_radii = radii
+        xyz = self.get_xyz.detach()
+        num_points = xyz.shape[0]
+        device = xyz.device
 
-        # ----------------------- global mask-based pruning -----------------------
+        # ==========================================================
+        # Global mask-based pruning
+        # ==========================================================
         if mask_dir is not None and mask_prune_iter is not None and iter in mask_prune_iter:
             print(f"[MaskPrune@{iter}] Start global mask-based pruning...")
 
-            # === Prepare ===
-            xyz = self.get_xyz.detach()  # (N,3)
-            num_points = xyz.shape[0]
-            device = xyz.device
-
-            overlap_sum = torch.zeros(num_points, device=device)
+            overlap_sum = torch.zeros(xyz.shape[0], device=xyz.device)
             view_count = torch.zeros_like(overlap_sum)
+            views = scene.getTrainCameras()[:]
 
-            # === Iterate all train views ===
-            views = scene.getTrainCameras()[:]  # 모든 카메라
             for v in views:
                 H, W = v.image_height, v.image_width
                 mask_path = _find_mask_path(mask_dir, v.image_name)
                 if not mask_path:
                     continue
 
-                mask = _load_binary_mask(mask_path, H, W, invert=mask_invert, device=device)
+                mask = _load_binary_mask(mask_path, H, W, invert=mask_invert).cpu().numpy()
                 uv = v.project_to_screen(xyz)
-                u, v_ = uv[:, 0].long(), uv[:, 1].long()
+                u = uv[:, 0].long()
+                v_ = uv[:, 1].long()
 
                 valid = (u >= 0) & (u < W) & (v_ >= 0) & (v_ < H)
                 if valid.sum() == 0:
                     continue
 
-                u_valid, v_valid = u[valid], v_[valid]
-                mask_vals = torch.zeros(num_points, device=device)
-                mask_vals[valid] = mask[v_valid, u_valid].float()
+                u_idx = u[valid].cpu().numpy()
+                v_idx = v_[valid].cpu().numpy()
+                mask_vals = mask[v_idx, u_idx]
 
-                overlap_sum += mask_vals
-                view_count += valid.float()
+                overlap_sum[valid] += torch.tensor(mask_vals, device=xyz.device)
+                view_count[valid] += 1.0
 
-            # === Compute overlap ratio ===
             overlap_ratio = overlap_sum / (view_count + 1e-6)
             overlap_ratio[overlap_ratio.isnan()] = 0.0
 
-            # === Sort & prune lowest overlap ===
-            num_prune = int(num_points * prune_ratio)
-            sorted_vals, sorted_idx = torch.sort(overlap_ratio)
-            prune_idx = sorted_idx[:num_prune]
+            print(f"[Debug] overlap_ratio stats → min={overlap_ratio.min().item():.4f}, "
+                f"max={overlap_ratio.max().item():.4f}, mean={overlap_ratio.mean().item():.4f}")
 
-            prune_mask = torch.zeros(num_points, dtype=torch.bool, device=device)
-            prune_mask[prune_idx] = True
+            visualize_mask_overlap_on_mask(
+                xyz=self.get_xyz.detach(),
+                scene=scene,
+                overlap_sum=overlap_sum,
+                view_count=view_count,
+                mask_dir=mask_dir,
+                mask_invert=mask_invert,
+                save_path=os.path.join(scene.model_path, f"mask_overlap_iter{iter}.png")
+            )
+
+            # === Soft Adaptive Pruning ===
+            mean = overlap_ratio.mean()
+            std = overlap_ratio.std()
+            adaptive_thresh = mean - 1.5 * std
+            adaptive_thresh = max(adaptive_thresh.item(), 0.05)
+
+            prune_mask = overlap_ratio < adaptive_thresh
+            num_prune = prune_mask.sum().item()
+            num_keep = (~prune_mask).sum().item()
+
+
+            print(f"[MaskPrune@{iter}] adaptive_thresh={adaptive_thresh:.3f} (mean={mean:.3f}, std={std:.3f})")
+            
+            if iter in mask_prune_iter:
+                self._comp_state = auto_brightness_saturation_compensation(
+                    scene, self, pipeline, background, state=self._comp_state
+                )
 
             self.prune_points(prune_mask)
 
-            print(f"[MaskPrune@{iter}] pruned {prune_mask.sum().item()} / {num_points} gaussians")
-            print(f"[MaskPrune@{iter}] mean overlap={overlap_ratio.mean():.4f}, "
-                f"min={overlap_ratio.min():.4f}, max={overlap_ratio.max():.4f}")
+            self._comp_state = auto_brightness_saturation_compensation(
+                scene, self, pipeline, background, state=self._comp_state
+            )
 
-        # ----------------------- densify (기존 logic 유지) -----------------------
+            print(f"[MaskPrune@{iter}] pruned={num_prune}, kept={num_keep}")
+
+            # ==========================================================
+            # Auto-Rebalance after Pruning
+            # ==========================================================
+            with torch.no_grad():
+                if hasattr(self, "opacity") and hasattr(self, "shs"):
+                    # Opacity normalization (avoid too low / too high alpha)
+                    old_mean = self.opacity.mean().item()
+                    self.opacity.clamp_(min=1e-4, max=1.0)
+                    new_mean = self.opacity.mean().item()
+                    print(f"[AutoBalance] Opacity mean: {old_mean:.4f} → {new_mean:.4f}")
+
+                    # SH normalization (prevent desaturation)
+                    max_val = self.shs.abs().max().item()
+                    if max_val > 0:
+                        self.shs.data /= max_val
+                    print(f"[AutoBalance] SH normalized (max={max_val:.3f})")
+
+                if hasattr(self, "scaling"):
+                    # Optional: prevent vanishing tiny scales
+                    self.scaling.data = torch.clamp(self.scaling.data, min=1e-3)
+                    print("[AutoBalance] Scaling clamped min=1e-3")
+
+                # Reset optimizer momentum
+                if hasattr(self, "optimizer"):
+                    self.optimizer.zero_grad(set_to_none=True)
+                    for g in self.optimizer.param_groups:
+                        g['lr'] *= 0.5  # small warm restart
+                    print("[AutoBalance] Optimizer state reset & LR halved temporarily")
+
+            return  # Early exit after mask-based pruning
+
+
+
+        # ==========================================================
+        # Gradient computation
+        # ==========================================================
         grads = self.xyz_gradient_accum / self.denom
         grads[grads.isnan()] = 0.0
+        grad_norm = torch.norm(grads, dim=1)
 
-        # 이후 기존 densify 관련 코드 유지
-        # (e.g., split, clone, or opacity-based pruning)
+        # ==========================================================
+        # Local mask-based densification suppression
+        # ==========================================================
+        if viewpoint_camera is not None and mask_dir is not None:
+            xyz = self.get_xyz.detach()
+            num_points = xyz.shape[0]
+            device = xyz.device
+                    
+            mask_path = _find_mask_path(mask_dir, viewpoint_camera.image_name)
+            if mask_path:
+                H, W = viewpoint_camera.image_height, viewpoint_camera.image_width
+                mask = _load_binary_mask(mask_path, H, W, invert=mask_invert, device=device)
+
+                uv = viewpoint_camera.project_to_screen(xyz)
+                u, v_ = uv[:, 0].long(), uv[:, 1].long()
+                valid = (u >= 0) & (u < W) & (v_ >= 0) & (v_ < H)
+
+                mask_vals = torch.zeros(num_points, device=device)
+                mask_vals[valid] = mask[v_[valid], u[valid]].float()
+
+                outside_mask = (mask_vals < mask_threshold)
+                grad_norm[outside_mask] = 0.0
 
         
         
@@ -540,11 +630,8 @@ class GaussianModel:
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
             
             
-        remain_before = self.get_xyz.shape[0]
         self.prune_points(prune_mask)
-        remain_after = self.get_xyz.shape[0]
         
-        #print(f"[Original prune] {remain_before - remain_after} removed → {remain_after} remain")
         
         tmp_radii = self.tmp_radii
         self.tmp_radii = None

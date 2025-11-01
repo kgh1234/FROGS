@@ -3,11 +3,12 @@ import torch
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib
+import numpy as np
 matplotlib.use('Agg')  # for headless environment
 
 
 from gaussian_renderer import render, network_gui
-from FROGS.gaussian_splatting.scene.mask_readers import _find_mask_path, _load_binary_mask  
+from scene.mask_readers import _find_mask_path, _load_binary_mask  
 
 
 # =========================
@@ -25,7 +26,6 @@ def gaussian_overlap(scene, gaussians, mask_dir, iteration, num_views=3, mask_in
 
     overlap_sum = torch.zeros(xyz.shape[0], device=xyz.device)
     view_count = torch.zeros_like(overlap_sum)
-
     views = scene.getTrainCameras()[:]
     save_dir = os.path.join(scene.model_path, f"mask_debug_iter{iteration}")
     os.makedirs(save_dir, exist_ok=True)
