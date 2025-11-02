@@ -19,18 +19,20 @@ import numpy as np
 import re
 
 
-# ===============================
-# Helper functions
-# ===============================
 def natural_key(s):
+    """'img2.png' < 'img10.png' 처럼 숫자를 정수로 비교하는 정렬 키"""
     s = str(s)
     return [int(t) if t.isdigit() else t.lower() for t in re.findall(r'\d+|\D+', s)]
 
 
 def readImages(renders_dir, gt_dir):
-    renders, gts, image_names = [], [], []
+    renders = []
+    gts = []
+    image_names = []
+
     render_files = sorted(os.listdir(renders_dir), key=natural_key)
     gt_files = sorted(os.listdir(gt_dir), key=natural_key)
+
     print(f"[DEBUG] first renders: {render_files[:3]}")
     print(f"[DEBUG] first gts    : {gt_files[:3]}")
 
@@ -44,6 +46,7 @@ def readImages(renders_dir, gt_dir):
 
 
 def compute_iou(mask_pred, mask_gt):
+    """mIoU 계산"""
     mask_pred = (mask_pred > 127).astype(np.uint8)
     mask_gt = (mask_gt > 127).astype(np.uint8)
     inter = np.logical_and(mask_pred, mask_gt).sum()
@@ -53,59 +56,76 @@ def compute_iou(mask_pred, mask_gt):
     return inter / union
 
 
-# ===============================
-# Evaluation main
-# ===============================
 def evaluate(model_paths, mask_dir):
     """
     model_paths: list of 3DGS scene dirs
     mask_dir: GT mask directory
     """
-    full_dict, per_view_dict = {}, {}
-
+    full_dict = {}
+    per_view_dict = {}
     print("")
+
+    mask_files = sorted(os.listdir(mask_dir), key=natural_key)
+    selected_masks = [mask_files[i] for i in range(0, len(mask_files), 8)]
+    print(f"Selected {len(selected_masks)} masks (every 8th frame)")
+    print(f"[DEBUG] first masks: {mask_files[:3]}")
+
     for scene_dir in model_paths:
         try:
             print("Scene:", scene_dir)
-            full_dict[scene_dir], per_view_dict[scene_dir] = {}, {}
+            full_dict[scene_dir] = {}
+            per_view_dict[scene_dir] = {}
 
-            # locate test directory
             test_dir = Path(scene_dir) / "test"
             method = sorted(os.listdir(test_dir))[-1]
             print("Method:", method)
 
-            full_dict[scene_dir][method], per_view_dict[scene_dir][method] = {}, {}
+            full_dict[scene_dir][method] = {}
+            per_view_dict[scene_dir][method] = {}
 
             method_dir = test_dir / method
             gt_dir = method_dir / "gt"
             renders_dir = method_dir / "renders"
-            pred_mask_dir = method_dir / "masks"   # predicted mask path
-            gt_mask_dir = mask_dir                 # GT mask path
-
+            pred_mask_dir = method_dir / "masks"  # 예측 mask 경로
             renders, gts, image_names = readImages(renders_dir, gt_dir)
+
             ssims, psnrs, lpipss, mious = [], [], [], []
-            
-            mask_files = sorted(os.listdir(mask_dir), key=natural_key)
-            selected_masks = [mask_files[i] for i in range(0, len(mask_files), 8)]
-            print(f"Selected {len(selected_masks)} masks (every 8th frame)")
-            print(f"[DEBUG] first masks: {mask_files[:3]}")
 
             for idx in tqdm(range(len(renders)), desc="Metric evaluation progress"):
-                render_masked = renders[idx]
-                gt_masked = gts[idx]
-                
-                # === Basic metrics ===
+
+                # === mask 적용 ===
+                if idx < len(selected_masks):
+                    gt_mask_path = os.path.join(mask_dir, selected_masks[idx])
+                    if not os.path.exists(gt_mask_path):
+                        print(f"GT mask not found: {gt_mask_path}")
+                        continue
+
+                    mask = cv2.imread(gt_mask_path, cv2.IMREAD_GRAYSCALE)
+                    if mask is None:
+                        print(f"Cannot read GT mask {gt_mask_path}")
+                        continue
+
+                    h, w = renders[idx].shape[-2], renders[idx].shape[-1]
+                    mask = cv2.resize(mask, (w, h)).astype(np.float32) / 255.0
+                    mask_t = torch.from_numpy(mask).unsqueeze(0).unsqueeze(0).cuda()
+                    mask_t = mask_t.expand_as(renders[idx])
+                    render_masked = renders[idx] * mask_t
+                    gt_masked = gts[idx] * mask_t
+                else:
+                    render_masked = renders[idx]
+                    gt_masked = gts[idx]
+
+                # === PSNR / SSIM / LPIPS ===
                 PSNR = psnr(render_masked, gt_masked)
                 if PSNR != float('inf'):
                     ssims.append(ssim(render_masked, gt_masked))
                     psnrs.append(PSNR)
                     lpipss.append(lpips(render_masked, gt_masked, net_type='vgg'))
 
-                # === mIoU between predicted and GT mask ===
+                # === mIoU 계산 ===
                 base_name = os.path.splitext(image_names[idx])[0]
                 pred_mask_path = os.path.join(pred_mask_dir, f"{base_name}.png")
-                gt_mask_path = os.path.join(gt_mask_dir, selected_masks[idx] if idx < len(selected_masks) else "")
-                #print(f"[DEBUG] pred_mask_path: {pred_mask_path}, gt_mask_path: {gt_mask_path}")
+                gt_mask_path = os.path.join(mask_dir, selected_masks[idx] if idx < len(selected_masks) else "")
                 if os.path.exists(pred_mask_path) and os.path.exists(gt_mask_path):
                     pred_mask = cv2.imread(pred_mask_path, cv2.IMREAD_GRAYSCALE)
                     gt_mask = cv2.imread(gt_mask_path, cv2.IMREAD_GRAYSCALE)
@@ -117,18 +137,19 @@ def evaluate(model_paths, mask_dir):
                 else:
                     print(f"[WARN] Missing mask pair for {base_name}")
 
-            # === Summaries ===
-            ssim_mean = torch.tensor(ssims).mean().item() if len(ssims) else 0
-            psnr_mean = torch.tensor(psnrs).mean().item() if len(psnrs) else 0
-            lpips_mean = torch.tensor(lpipss).mean().item() if len(lpipss) else 0
-            miou_mean = np.mean(mious) if len(mious) else 0
+            # === 평균 출력 ===
+            ssim_mean = torch.tensor(ssims).mean().item() if ssims else 0
+            psnr_mean = torch.tensor(psnrs).mean().item() if psnrs else 0
+            lpips_mean = torch.tensor(lpipss).mean().item() if lpipss else 0
+            miou_mean = np.mean(mious) if mious else 0
 
-            print(f"SSIM : {ssim_mean:>12.7f}")
-            print(f"PSNR : {psnr_mean:>12.7f}")
-            print(f"LPIPS: {lpips_mean:>12.7f}")
-            print(f"mIoU : {miou_mean:>12.7f}\n")
+            print("SSIM : {:>12.7f}".format(ssim_mean))
+            print("PSNR : {:>12.7f}".format(psnr_mean))
+            print("LPIPS: {:>12.7f}".format(lpips_mean))
+            print("mIoU : {:>12.7f}".format(miou_mean))
+            print("")
 
-            # store
+            # === 결과 저장 ===
             full_dict[scene_dir][method].update({
                 "SSIM": ssim_mean,
                 "PSNR": psnr_mean,
@@ -136,7 +157,6 @@ def evaluate(model_paths, mask_dir):
                 "mIoU": float(miou_mean)
             })
 
-            # save JSON
             with open(scene_dir + "/results_masked.json", 'w') as fp:
                 json.dump(full_dict[scene_dir], fp, indent=True)
 
@@ -148,11 +168,10 @@ if __name__ == "__main__":
     device = torch.device("cuda:0")
     torch.cuda.set_device(device)
 
-    parser = ArgumentParser(description="Metric evaluation with PSNR, SSIM, LPIPS, and mIoU")
+    parser = ArgumentParser(description="Metric evaluation (masked version + mIoU)")
     parser.add_argument('--model_paths', '-m', required=True, nargs="+", type=str, default=[],
                         help="Path(s) to 3DGS model directories")
     parser.add_argument('--mask_dir', '-mask', required=True, type=str, default="",
                         help="Path to GT mask directory")
     args = parser.parse_args()
-
     evaluate(args.model_paths, args.mask_dir)

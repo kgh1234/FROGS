@@ -118,7 +118,7 @@ class Scene:
             json.dump(exposure_dict, f, indent=2)
 
     def getTrainCameras(self, scale=1.0):
-        return self.train_cameras[scale]
+        return self.train_cameras[int(scale)]
 
     def getTestCameras(self, scale=1.0):
         return self.test_cameras[scale]

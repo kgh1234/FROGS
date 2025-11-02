@@ -182,11 +182,33 @@ def render(
         )
 
     rendered_image = rendered_image.clamp(0, 1)
+    
+    
+
+    eps = 1e-8
+    # radii 기반 바이너리 마스크
+    vis_mask = (radii > eps).to(rendered_image.dtype)  # (H, W)
+
+    if depth_image is not None:
+        # depth 기반이 있으면 그걸 우선 사용 (배경이 0인 빌드가 많음)
+        depth_mask = (depth_image > 0).to(rendered_image.dtype)  # (H, W)
+        mask = depth_mask
+    else:
+        mask = vis_mask
+
+    # 채널차원 맞춰서 (1,H,W)
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(0)
+
+    # 기존 visibility_filter는 인덱스가 아니라 dense mask로 교체
+    #visibility_filter = mask  # (1,H,W) 0/1
+
     out = {
         "render": rendered_image,
         "viewspace_points": screenspace_points,
         "visibility_filter": (radii > 0).nonzero(),
         "radii": radii,
-        "depth": depth_image,  # may be None
+        "depth": depth_image,                   
+        "mask": mask,                            
     }
     return out
