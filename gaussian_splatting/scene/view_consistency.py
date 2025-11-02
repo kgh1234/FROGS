@@ -3,6 +3,7 @@ import torch
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib
+import random
 import numpy as np
 matplotlib.use('Agg')  # for headless environment
 
@@ -142,3 +143,30 @@ def compute_view_jaccard(scene, gaussians, pipeline, background, threshold=0.2):
             print(f"* View {i:03d}: {score:.3f} (removed)")
     return bad_indices
 
+
+def compute_view_jaccard_fast(scene, gaussians, pipeline, background, threshold=0.2, sample_k=20):
+    views = scene.getTrainCameras()
+    n = len(views)
+    visible_sets = []
+
+    for v in views:
+        out = render(v, gaussians, pipeline, background)
+        vis_mask = out["visibility_filter"] > 0
+        visible_ids = torch.nonzero(vis_mask, as_tuple=False).squeeze(-1).cpu().numpy().ravel().tolist()
+        visible_sets.append(set(visible_ids))
+
+    jaccard_means = []
+    for i in range(n):
+        sims = []
+        sample_idx = random.sample([j for j in range(n) if j != i], min(sample_k, n - 1))
+        for j in sample_idx:
+            inter = len(visible_sets[i] & visible_sets[j])
+            union = len(visible_sets[i] | visible_sets[j]) + 1e-6
+            sims.append(inter / union)
+        mean_sim = sum(sims) / len(sims)
+        jaccard_means.append(mean_sim)
+
+    bad_indices = [i for i, score in enumerate(jaccard_means) if score < threshold]
+    print(f"[FastJaccard] {len(bad_indices)}/{n} views flagged (avg sim < {threshold}) [sample_k={sample_k}]")
+
+    return bad_indices
