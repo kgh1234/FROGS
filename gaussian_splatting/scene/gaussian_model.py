@@ -11,6 +11,7 @@
 import matplotlib
 from utils.mask_projection_visualization import visualize_mask_overlap_on_mask, visualize_mask_projection_with_centers
 from scene.pruning_color import auto_brightness_compensation, auto_brightness_saturation_compensation
+
 import torch
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
@@ -470,7 +471,7 @@ class GaussianModel:
                     background=None,     
                     prev_brightness=None):  
 
-        
+        from scene.view_consistency import gaussian_mask_overlap
 
         self.tmp_radii = radii
         xyz = self.get_xyz.detach()
@@ -478,49 +479,19 @@ class GaussianModel:
         device = xyz.device
 
         # ==========================================================
-        # Global mask-based pruning
+        # Global mask-based pruning & view consistency filtering
         # ==========================================================
         if mask_dir is not None and mask_prune_iter is not None and iter in mask_prune_iter:
             print(f"[MaskPrune@{iter}] Start global mask-based pruning...")
 
-            overlap_sum = torch.zeros(xyz.shape[0], device=xyz.device)
-            view_count = torch.zeros_like(overlap_sum)
-            views = scene.getTrainCameras()[:]
+            overlap_ratio, avg_mask_ratio, overlap_sum, view_count, view_ratios = gaussian_mask_overlap(
+                xyz=self.get_xyz,
+                scene=scene,
+                mask_dir=mask_dir,
+                mask_invert=mask_invert,
+                iter=iter
+            )
 
-            # ==============================
-            # View-wise Mask Accumulation
-            # ==============================
-            mask_coverage_all = []
-            for v in views:
-                H, W = v.image_height, v.image_width
-                mask_path = _find_mask_path(mask_dir, v.image_name)
-                if not mask_path:
-                    continue
-
-                mask = _load_binary_mask(mask_path, H, W, invert=mask_invert).cpu().numpy()
-                mask_coverage_all.append(mask.mean())  # 흰색(=object) 비율 기록
-
-                uv = v.project_to_screen(xyz)
-                u = uv[:, 0].long()
-                v_ = uv[:, 1].long()
-                valid = (u >= 0) & (u < W) & (v_ >= 0) & (v_ < H)
-                if valid.sum() == 0:
-                    continue
-
-                u_idx = u[valid].cpu().numpy()
-                v_idx = v_[valid].cpu().numpy()
-                mask_vals = mask[v_idx, u_idx]
-
-                overlap_sum[valid] += torch.tensor(mask_vals, device=xyz.device)
-                view_count[valid] += 1.0
-
-            overlap_ratio = overlap_sum / (view_count + 1e-6)
-            overlap_ratio[overlap_ratio.isnan()] = 0.0
-            avg_mask_ratio = np.mean(mask_coverage_all) if len(mask_coverage_all) > 0 else 0.5
-
-            print(f"[Debug] overlap_ratio stats → min={overlap_ratio.min().item():.4f}, "
-                f"max={overlap_ratio.max().item():.4f}, mean={overlap_ratio.mean().item():.4f}")
-            print(f"[Debug] avg_mask_ratio={avg_mask_ratio:.3f}")
 
             visualize_mask_overlap_on_mask(
                 xyz=self.get_xyz.detach(),
@@ -582,8 +553,22 @@ class GaussianModel:
 
             print(f"[MaskPrune@{iter}] pruned={num_prune}, kept={num_keep}")
 
-            return  # Early exit after mask-based pruning
+            # view consistency filtering
+            
+            # if mask_prune_iter[-1] == iter:
+            #     from scene.view_consistency import gaussian_view_consistency
+            #     bad_idx = gaussian_view_consistency(
+            #         scene=scene,
+            #         gaussians=self,
+            #         mask_dir=mask_dir,
+            #         mask_invert=mask_invert,
+            #         threshold=None,       # or fixed like 0.05
+            #     )
+            #     print(f"[MaskPrune@{iter}] Final mask pruning done. Skipping view consistency filtering...")
+            #     return bad_idx
+                
 
+            return None
 
 
 

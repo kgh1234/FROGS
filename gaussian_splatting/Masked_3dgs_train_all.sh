@@ -15,6 +15,7 @@ export CUDA_VISIBLE_DEVICES=0
 
 for SCENE_PATH in "$ROOT"/*; do
     if [ -d "$SCENE_PATH" ]; then
+        #SCENE_PATH="../../masked_datasets/$SCENE_NAME/scan64"
         SCENE=$(basename "$SCENE_PATH")
 
         IMG_DIR="$SCENE_PATH/images"
@@ -80,7 +81,7 @@ for SCENE_PATH in "$ROOT"/*; do
         SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
         PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
         LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
-        MIOU=$(grep "MIOU" metrics_tmp.log | awk '{print $3}')
+        MIOU=$(grep "mIoU" metrics_tmp.log | awk '{print $3}')
 
         python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX" "$GAUSSIAN_COUNT"
 

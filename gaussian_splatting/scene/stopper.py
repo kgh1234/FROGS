@@ -1,7 +1,7 @@
 import numpy as np
 
 class GaussianStatStopper:
-    def __init__(self, patience=500, min_delta=1e-5):
+    def __init__(self, patience=10, min_delta=1e-8):
         self.patience = patience
         self.min_delta = min_delta
         self.history = []
@@ -24,6 +24,7 @@ class GaussianStatStopper:
         
         recent = np.stack(self.history[-self.patience:])
         diff = np.mean(np.abs(recent[1:] - recent[:-1]))
+        #print(f"[AdaptiveStop] Mean Gaussian stat delta over last {self.patience} steps: {diff:.6e}")
         if diff < self.min_delta:
             print(f"[AdaptiveStop] Global Gaussian stats stabilized (Δ={diff:.6e}) → stopping.")
             return True

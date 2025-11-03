@@ -39,8 +39,8 @@ from arguments import ModelParams, PipelineParams, OptimizationParams
 from scene.stopper import GaussianStatStopper
 
 from utils.mask_projection_visualization import visualize_mask_projection_with_centers
-from scene.view_consistency import compute_view_jaccard
-from scene.view_consistency import gaussian_overlap
+from scene.view_consistency import compute_view_jaccard, compute_view_jaccard_fast
+from scene.view_consistency import gaussian_mask_overlap
 from scene.mask_readers import _find_mask_path, _load_binary_mask
 
 
@@ -122,19 +122,32 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
+
+
+        if iteration == 1000 and iteration < opt.densify_until_iter:
+            bad_idx = compute_view_jaccard_fast(scene, gaussians, pipe, background, threshold=0.2)
+            if len(bad_idx) > 0:
+                train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
+                print(f"[Iter {iteration}] Removed {len(bad_idx)} low-consistency views from training.")
+                print(f"[INFO] Remaining training views: {len(train_views)}")
+
+        if iteration == 1801 and iteration < opt.densify_until_iter:
+            from scene.view_consistency import gaussian_view_consistency
+            bad_idx = gaussian_view_consistency(
+                scene=scene,
+                gaussians=gaussians,
+                mask_dir=mask_dir,
+                mask_invert=mask_invert,
+                threshold=None,       # or fixed like 0.05
+            )
+            if bad_idx is not None and len(bad_idx) > 0:
+                train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
+                removed_views = [v for i, v in enumerate(train_views) if i in bad_idx]
+                removed_names = [v.image_name for v in removed_views]
+                for i, name in zip(bad_idx, removed_names):
+                    print(f"  - View {i:03d}: {name}")
+                print(f"[INFO] Remaining training views: {len(train_views)}")
             
-        
-        # if iteration % 3000 == 0 and iteration < opt.densify_until_iter:
-        #     bad_idx = compute_view_jaccard(scene, gaussians, pipe, background, threshold=0.2)
-        #     if len(bad_idx) > 0:
-        #         train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
-        #         print(f"[Iter {iteration}] Removed {len(bad_idx)} low-consistency views from training.")
-        #         for i in bad_idx:
-        #             img_name = getattr(scene.getTrainCameras()[i], "image_name", None)
-        #             print(f"  → excluded {img_name}")
-        #         print(f"[INFO] Remaining training views: {len(train_views)}")
-
-
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = train_views.copy()
@@ -231,6 +244,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             # Densification
             if iteration < opt.densify_until_iter:
                 # Keep track of max radii in image-space for pruning
+                
                 gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                 gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
                 
@@ -241,7 +255,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     if 'prev_brightness' not in locals():
                         prev_brightness = None
                     
-                    gaussians.densify_and_prune(
+                    bad_idx = gaussians.densify_and_prune(
                         opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,
                         mask_dir=mask_dir if use_mask else None,
                         scene=scene,
@@ -252,7 +266,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         pipeline=pipe,            
                         background=background,     
                         prev_brightness=prev_brightness 
-    )
+                    )
+                    
+
+                    
                     
                 from utils.mask_projection_visualization import visualize_mask_pruning_result
                 if use_mask and iteration in prune_iterations:
@@ -283,18 +300,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     gaussians.optimizer.zero_grad(set_to_none = True)
 
 
-            # if iteration % 1000 == 0:  
-            #     gaussian_overlap(scene, gaussians, mask_dir, iteration)
-            #     gauss_state = {
-            #         "positions": gaussians.get_xyz.detach().cpu().numpy(),
-            #         "scales": gaussians.get_scaling.detach().cpu().numpy(),
-            #         "opacities": gaussians.get_opacity.detach().cpu().numpy(),
-            #     }
-            #     if stopper.update(gauss_state):
-            #         print(f"\n[EarlyStop] Gaussian stats converged at iteration {iteration}")
-            #         print(f"[ITER {iteration}] Saving and exiting...")
-            #         scene.save(iteration)
-            #         break
+            if iteration % 100 == 0:  
+                #gaussian_overlap(scene, gaussians, mask_dir, iteration)
+                gauss_state = {
+                    "positions": gaussians.get_xyz.detach().cpu().numpy(),
+                    "scales": gaussians.get_scaling.detach().cpu().numpy(),
+                    "opacities": gaussians.get_opacity.detach().cpu().numpy(),
+                }
+                if stopper.update(gauss_state):
+                    print(f"\n[EarlyStop] Gaussian stats converged at iteration {iteration}")
+                    print(f"[ITER {iteration}] Saving and exiting...")
+                    scene.save(iteration)
+                    return
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
