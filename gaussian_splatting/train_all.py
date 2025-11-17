@@ -95,6 +95,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
     
+    opacity_log = []
+    shdc_log = []
+    iter_log = []
+
+
     stopper = GaussianStatStopper(patience=500, min_delta=1e-5)
     print(f"Prune ratio : {prune_ratio}")
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
@@ -118,6 +123,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         iter_start.record()
 
         gaussians.update_learning_rate(iteration)
+
+
+        with torch.no_grad():
+
+            # --- Opacity 평균 기록 ---
+            mean_opacity = gaussians.get_opacity.mean().item()
+            opacity_log.append(mean_opacity)
+
+            # --- SH DC(0번째 SH coefficient) 기록 ---
+            # gaussians.get_features_dc(): [N,3] 형태일 것
+            sh_dc_value = gaussians.get_features_dc.mean().item()
+            shdc_log.append(sh_dc_value)
+
+            # --- iteration ---
+            iter_log.append(iteration)
+
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
@@ -232,7 +253,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 gaussians._ema_bright_state = None
 
             # pruning 시점 또는 주기적 호출 (예: 50 iter마다)
-            # if (iteration < prune_iterations[-1]) and (iteration % 50 == 0):
+            # if (iteration in prune_iterations):
             #     gaussians._ema_bright_state = ema_brightness_compensation_from_image(
             #         gaussians=gaussians,
             #         render_img=image,      # 현재 view에서 렌더한 결과 그대로 사용
@@ -275,6 +296,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     
                     if 'prev_brightness' not in locals():
                         prev_brightness = None
+                    #prune_iter =[0]
                     prune_iter=[600, 900, 1200]
                     # prune 직전 brightness 저장
                     # if not hasattr(gaussians, "prev_brightness") or gaussians.prev_brightness is None or iteration in prune_iter:
@@ -347,6 +369,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+
+
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10,6))
+    plt.plot(iter_log, opacity_log, label="Opacity Mean")
+    plt.plot(iter_log, shdc_log, label="SH-DC Mean")
+    plt.xlabel("Iteration")
+    plt.ylabel("Value")
+    plt.title("Opacity & SH-DC Changes Over Iterations")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig("brightness_opacity_shdc_curve.png", dpi=200)
+    plt.close()
+
 
 def prepare_output_and_logger(args):    
     if not args.model_path:
@@ -427,7 +463,6 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
     
-    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[3000])
     parser.add_argument('--prune_ratio', type=float, default=1.0)
     
 

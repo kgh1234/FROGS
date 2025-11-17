@@ -479,7 +479,7 @@ class GaussianModel:
         device = xyz.device
 
         # ==========================================================
-        # Global mask-based pruning & view consistency filtering
+        # Global mask-based pruning
         # ==========================================================
         if mask_dir is not None and mask_prune_iter is not None and iter in mask_prune_iter:
             print(f"[MaskPrune@{iter}] Start global mask-based pruning...")
@@ -509,45 +509,38 @@ class GaussianModel:
             mean = overlap_ratio.mean()
             std = overlap_ratio.std()
 
-            # --- mask coverage에 따른 강도 조정 ---
             coverage_scale = np.clip(avg_mask_ratio, 0.1, 1.0)
             mask_weight = 1.0 - 0.5 * (1.0 - coverage_scale)  # 0.5~1.0
 
-            # --- overlap 분포 기반 pruning 강도 ---
             dist_spread = (std / (mean + 1e-6)).clamp(0, 5)
             pruning_strength = torch.tanh(dist_spread).item()  # 0~1
             base_thresh = mean + 0.5 * std
             base_thresh = max(base_thresh.item(), 0.002)
 
-            # --- Soft threshold: adaptive mean/std ---
             soft_thresh = base_thresh * (1.0 - 0.6 * pruning_strength * mask_weight)
             soft_thresh = np.clip(soft_thresh, 0.001, 0.05)
 
-            # --- Hard threshold: 5% 이하이면 무조건 제거 ---
+
             hard_thresh = max(0.6 * mean.item(), 0.002)
 
             print(f"[MaskPrune@{iter}] mean={mean:.4f}, std={std:.4f}, spread={dist_spread:.2f}, "
                 f"strength={pruning_strength:.2f}, mask_ratio={avg_mask_ratio:.2f} → "
                 f"soft_thresh={soft_thresh:.4f}, hard_thresh={hard_thresh:.4f}")
 
-            # --- Pruning mask 생성 ---
             prune_mask = overlap_ratio < soft_thresh
-            prune_mask[overlap_ratio < hard_thresh] = True  # 완전 밖인 건 강제 제거
+            prune_mask[overlap_ratio < hard_thresh] = True 
 
             num_prune = prune_mask.sum().item()
             num_keep = (~prune_mask).sum().item()
 
             if prune_ratio is not None:
-                # 현재 prune 예정 index들
                 prune_idx = torch.where(prune_mask)[0]
 
-                # prune_ratio 비율로 실제 prune 개수 결정
                 target_prune = int(num_prune * prune_ratio)
 
                 if target_prune < num_prune:
-                    # prune 예정된 애들 중 overlap 낮은 순서 정렬
                     prune_overlap = overlap_ratio[prune_idx]
-                    prune_order = torch.argsort(prune_overlap)  # 작은 게 먼저 제거
+                    prune_order = torch.argsort(prune_overlap)  
 
                     # prune_ratio 만큼만 prune
                     to_prune_idx = prune_idx[prune_order[:target_prune]]
@@ -570,10 +563,7 @@ class GaussianModel:
             # ==============================
             # Brightness / Saturation 보정
             # ==============================
-            # if iter in mask_prune_iter:
-            #     self._comp_state = auto_brightness_saturation_compensation(
-            #         scene, self, pipeline, background, state=self._comp_state
-            #     )
+
             # if iter in mask_prune_iter:
             #     self._comp_state = auto_brightness_saturation_compensation(
             #         scene, self, pipeline, background, state=self._comp_state
@@ -581,9 +571,9 @@ class GaussianModel:
 
             self.prune_points(prune_mask)
 
-            # self._comp_state = auto_brightness_saturation_compensation(
-            #     scene, self, pipeline, background, state=self._comp_state
-            # )
+            self._comp_state = auto_brightness_saturation_compensation(
+                scene, self, pipeline, background, state=self._comp_state
+            )
 
             
             # self._comp_state = auto_brightness_saturation_perview(
@@ -597,19 +587,6 @@ class GaussianModel:
 
             print(f"[MaskPrune@{iter}] pruned={num_prune}, kept={num_keep}")
 
-            # view consistency filtering
-            
-            # if mask_prune_iter[-1] == iter:
-            #     from scene.view_consistency import gaussian_view_consistency
-            #     bad_idx = gaussian_view_consistency(
-            #         scene=scene,
-            #         gaussians=self,
-            #         mask_dir=mask_dir,
-            #         mask_invert=mask_invert,
-            #         threshold=None,       # or fixed like 0.05
-            #     )
-            #     print(f"[MaskPrune@{iter}] Final mask pruning done. Skipping view consistency filtering...")
-            #     return bad_idx
                 
 
             return None
