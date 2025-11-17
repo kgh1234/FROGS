@@ -172,21 +172,21 @@ def gaussian_view_consistency(scene, gaussians, mask_dir, mask_invert=False, thr
         hit_ratios.append((idx, cam.image_name, hit_ratio))
 
         # === Only visualize low-hit views ===
-        if hit_ratio < LOW_HIT_THRESHOLD:
-            bad_indices.append(idx)
-            print(f"[LowHit] View {idx:03d} ({cam.image_name}) → hit_ratio={hit_ratio:.3f} < {LOW_HIT_THRESHOLD}")
-            fig, ax = plt.subplots(figsize=(6, 5))
-            ax.imshow(mask, cmap='gray')
-            ax.scatter(u_valid, v_valid, s=0.5, c='r', alpha=0.3)
-            ax.set_xlim([0, w_mask])
-            ax.set_ylim([h_mask, 0])
-            title = f"{cam.image_name} | hit_ratio={hit_ratio:.3f}"
-            ax.set_title(title, fontsize=9)
-            plt.tight_layout()
-            lowhit_path = os.path.join(save_dir, f"proj_debug_{idx:03d}_LOWHIT.png")
-            plt.savefig(lowhit_path, dpi=150)
-            plt.close(fig)
-            print(f"  [Saved] {lowhit_path}")
+        # if hit_ratio < LOW_HIT_THRESHOLD:
+        #     bad_indices.append(idx)
+        #     print(f"[LowHit] View {idx:03d} ({cam.image_name}) → hit_ratio={hit_ratio:.3f} < {LOW_HIT_THRESHOLD}")
+        #     fig, ax = plt.subplots(figsize=(6, 5))
+        #     ax.imshow(mask, cmap='gray')
+        #     ax.scatter(u_valid, v_valid, s=0.5, c='r', alpha=0.3)
+        #     ax.set_xlim([0, w_mask])
+        #     ax.set_ylim([h_mask, 0])
+        #     title = f"{cam.image_name} | hit_ratio={hit_ratio:.3f}"
+        #     ax.set_title(title, fontsize=9)
+        #     plt.tight_layout()
+        #     lowhit_path = os.path.join(save_dir, f"proj_debug_{idx:03d}_LOWHIT.png")
+        #     plt.savefig(lowhit_path, dpi=150)
+        #     plt.close(fig)
+        #     print(f"  [Saved] {lowhit_path}")
 
     # === Step 3. Summary: top-10 lowest hit ratios ===
     hit_ratios_sorted = sorted(hit_ratios, key=lambda x: x[2])  # sort by hit_ratio
@@ -196,21 +196,21 @@ def gaussian_view_consistency(scene, gaussians, mask_dir, mask_invert=False, thr
         print(f"  {rank+1:02d}. View {idx:03d} | {name:<25} | hit_ratio={hr:.3f} {mark}")
 
     # === Step 4. Histogram ===
-    low_hit_vals = [hr for (_, _, hr) in hit_ratios if hr < LOW_HIT_THRESHOLD]
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.hist([hr for (_, _, hr) in hit_ratios], bins=30, color='lightgray', edgecolor='k', alpha=0.6, label="All views")
-    if low_hit_vals:
-        ax.hist(low_hit_vals, bins=30, color='red', alpha=0.6, label=f"Low hit_ratio (<{LOW_HIT_THRESHOLD})")
-    ax.set_xlabel("Hit Ratio per View")
-    ax.set_ylabel("View Count")
-    ax.set_title("Hit Ratio Distribution (low-hit views in red)")
-    ax.legend()
-    plt.tight_layout()
-    hist_path = os.path.join(save_dir, "view_lowhit_distribution.png")
-    plt.savefig(hist_path, dpi=150)
-    plt.close(fig)
-    print(f"\n[Saved] Low-hit histogram → {hist_path}")
-    print(f"[Done] {len(bad_indices)} low-hit views removed.\n")
+    # low_hit_vals = [hr for (_, _, hr) in hit_ratios if hr < LOW_HIT_THRESHOLD]
+    # fig, ax = plt.subplots(figsize=(8, 5))
+    # ax.hist([hr for (_, _, hr) in hit_ratios], bins=30, color='lightgray', edgecolor='k', alpha=0.6, label="All views")
+    # if low_hit_vals:
+    #     ax.hist(low_hit_vals, bins=30, color='red', alpha=0.6, label=f"Low hit_ratio (<{LOW_HIT_THRESHOLD})")
+    # ax.set_xlabel("Hit Ratio per View")
+    # ax.set_ylabel("View Count")
+    # ax.set_title("Hit Ratio Distribution (low-hit views in red)")
+    # ax.legend()
+    # plt.tight_layout()
+    # hist_path = os.path.join(save_dir, "view_lowhit_distribution.png")
+    # plt.savefig(hist_path, dpi=150)
+    # plt.close(fig)
+    # print(f"\n[Saved] Low-hit histogram → {hist_path}")
+    # print(f"[Done] {len(bad_indices)} low-hit views removed.\n")
 
     return sorted(set(bad_indices))
 
