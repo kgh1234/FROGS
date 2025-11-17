@@ -1,0 +1,120 @@
+#!/bin/bash
+# =============================================
+# 3DGS Training → Rendering → Metrics pipeline
+# with in-place resize (800x600) for images & masks
+# =============================================
+
+SCENE_NAME="DTU_error"
+ROOT="../../masked_datasets/$SCENE_NAME"
+OUTPUT_ROOT="../../output_all/$SCENE_NAME"
+CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
+SHEET_NAME="DTU_error"
+
+export CUDA_VISIBLE_DEVICES=0
+
+for SCENE_PATH in "$ROOT"/*; do
+    if [ -d "$SCENE_PATH" ]; then
+        SCENE=$(basename "$SCENE_PATH")
+
+        IMG_DIR="$SCENE_PATH/images"
+        MASK_DIR="$SCENE_PATH/mask"
+        OUT_DIR="$OUTPUT_ROOT/${SCENE}/$(date -d '+9 hours' +%m%d_%H%M)"
+
+        echo "====================================="
+        echo "Processing scene: $SCENE"
+        echo "====================================="
+
+        # ================================
+        # Step 1. Resize images & masks
+        # ================================
+        echo "Resizing images and masks in-place to 800x600..."
+        if [ -d "$IMG_DIR" ]; then
+            find "$IMG_DIR" -type f \( -iname "*.png" -o -iname "*.jpg" \) | while read IMG; do
+                convert "$IMG" -resize 800x600\! "$IMG"
+            done
+        fi
+
+        if [ -d "$MASK_DIR" ]; then
+            find "$MASK_DIR" -type f \( -iname "*.png" -o -iname "*.jpg" \) | while read MASK; do
+                convert "$MASK" -resize 800x600\! -colorspace Gray "$MASK"
+            done
+        fi
+        echo "Resizing complete."
+
+        # ================================
+        # Step 2. Training
+        # ================================
+        echo "Training 시작..."
+        TRAIN_START=$(date +%s)
+        LOGFILE="vram_${SCENE}.log"
+        nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
+        VRAM_PID=$!
+
+        # python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" \
+        #     --mask_dir "$MASK_DIR" --prune_iterations 0 --eval
+        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" \
+            --mask_dir "$MASK_DIR" --prune_iterations 0 --eval
+        TRAIN_END=$(date +%s)
+        TRAIN_TIME=$((TRAIN_END - TRAIN_START))
+        echo "Training time: ${TRAIN_TIME}s"
+
+        kill $VRAM_PID 2>/dev/null
+        VRAM_MAX=$(awk 'BEGIN{max=0}{if($1>max)max=$1}END{print max}' "$LOGFILE")
+        rm -f "$LOGFILE"
+
+        # ================================
+        # Step 3. Rendering
+        # ================================
+        echo "Rendering: $SCENE"
+        RENDER_START=$(date +%s)
+        python render_with_mask.py -m "$OUT_DIR"
+        RENDER_END=$(date +%s)
+        RENDER_TIME=$((RENDER_END - RENDER_START))
+        echo "Rendering time: ${RENDER_TIME}s"
+
+        # ================================
+        # Step 4. Evaluation
+        # ================================
+        echo "Evaluating metrics: $SCENE"
+        python metrics_object_mIoU.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
+
+        POINT_CLOUD_DIR="$OUT_DIR/point_cloud"
+        if [ -d "$POINT_CLOUD_DIR" ]; then
+            LATEST_ITER_DIR=$(ls -d "$POINT_CLOUD_DIR"/iteration_* 2>/dev/null | sort -V | tail -n 1)
+            if [ -n "$LATEST_ITER_DIR" ]; then
+                PLY_PATH="$LATEST_ITER_DIR/point_cloud.ply"
+                if [ -f "$PLY_PATH" ]; then
+                    GAUSSIAN_COUNT=$(grep -a -m1 "element vertex" "$PLY_PATH" | awk '{print $3}')
+                    echo "Gaussian: $GAUSSIAN_COUNT (from $(basename "$LATEST_ITER_DIR"))"
+                else
+                    echo "Gaussian: PLY not found in $(basename "$LATEST_ITER_DIR")"
+                fi
+            else
+                echo "Gaussian: No iteration_* folder found under $POINT_CLOUD_DIR"
+            fi
+        else
+            echo "Gaussian: point_cloud folder not found in $OUT_DIR"
+        fi
+
+        # ================================
+        # Step 5. Save metrics
+        # ================================
+        SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
+        PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
+        LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
+        MIOU=$(grep "mIoU" metrics_tmp.log | awk '{print $3}')
+
+        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX" "$GAUSSIAN_COUNT"
+
+        if [ ! -f "$CSV_FILE" ]; then
+            echo "scene,SSIM,PSNR,LPIPS,MIOU" > "$CSV_FILE"
+        fi
+        echo "$SCENE,$SSIM,$PSNR,$LPIPS,$MIOU" >> "$CSV_FILE"
+
+        echo "Metrics for $SCENE appended to $CSV_FILE"
+        echo "Finished: $SCENE"
+        echo
+    fi
+done
+
+echo "All scenes processed."
