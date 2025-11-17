@@ -65,7 +65,7 @@ except:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
-             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iterations=[]):
+             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iterations=[], prune_ratio=1.0):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -96,7 +96,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
     ema_Ll1depth_for_log = 0.0
     
     stopper = GaussianStatStopper(patience=500, min_delta=1e-5)
-
+    print(f"Prune ratio : {prune_ratio}")
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
     for iteration in range(first_iter, opt.iterations + 1):
@@ -123,7 +123,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
 
-
+        # # filtering on/off
         if iteration == 1000 and iteration < opt.densify_until_iter:
             bad_idx = compute_view_jaccard_fast(scene, gaussians, pipe, background, threshold=0.2)
             if len(bad_idx) > 0:
@@ -138,7 +138,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 gaussians=gaussians,
                 mask_dir=mask_dir,
                 mask_invert=mask_invert,
-                threshold=None,       # or fixed like 0.05
+                threshold=0.05,       # or fixed like 0.05
             )
             if bad_idx is not None and len(bad_idx) > 0:
                 train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
@@ -226,6 +226,27 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             # Progress bar
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+            from scene.pruning_color import ema_brightness_compensation_from_image
+
+            if not hasattr(gaussians, "_ema_bright_state"):
+                gaussians._ema_bright_state = None
+
+            # pruning 시점 또는 주기적 호출 (예: 50 iter마다)
+            # if (iteration < prune_iterations[-1]) and (iteration % 50 == 0):
+            #     gaussians._ema_bright_state = ema_brightness_compensation_from_image(
+            #         gaussians=gaussians,
+            #         render_img=image,      # 현재 view에서 렌더한 결과 그대로 사용
+            #          visibility_filter= visibility_filter,
+            #         state=gaussians._ema_bright_state,
+            #         iteration=iteration,
+            #         warmup_iters=500,
+            #         luma_momentum=0.95,
+            #         tolerance=0.98,
+            #         max_global_gain=1.2,
+            #         max_step_gain=1.01,
+            #         step_alpha=0.2,
+            #     )
+
 
             if iteration % 10 == 0:
                 progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
@@ -254,22 +275,51 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     
                     if 'prev_brightness' not in locals():
                         prev_brightness = None
-                    
+                    prune_iter=[600, 900, 1200]
+                    # prune 직전 brightness 저장
+                    # if not hasattr(gaussians, "prev_brightness") or gaussians.prev_brightness is None or iteration in prune_iter:
+                    #     out = render(viewpoint_cam, gaussians, pipe, background)
+                    #     img = out["render"].clamp(0, 1)
+                    #     gaussians.prev_brightness = img.mean().item()
+                    out = render(viewpoint_cam, gaussians, pipe, background)
+                    gaussians.prev_brightness = out["render"].clamp(0,1).mean().item()
+
+
+                   
                     bad_idx = gaussians.densify_and_prune(
                         opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,
                         mask_dir=mask_dir if use_mask else None,
                         scene=scene,
                         viewpoint_camera=viewpoint_cam,
                         iter=iteration,
-                        mask_prune_iter=[600, 1200, 1800],
-                        prune_ratio=1.0,
+                        mask_prune_iter=prune_iter, # pruning on/off
+                        prune_ratio=prune_ratio,
                         pipeline=pipe,            
                         background=background,     
                         prev_brightness=prev_brightness 
                     )
-                    
+                    # from scene.pruning_color import prune_shdc_global_brightness_compensation
+                    # if iteration in [700,1200]:
+                    #     prune_shdc_global_brightness_compensation(
+                    #         scene=scene,
+                    #         gaussians=gaussians,
+                    #         pipeline=pipe,
+                    #         background=background,
+                    #     )
 
-                    
+                    from scene.pruning_color import prune_shdc_global_brightness_compensation_ema
+                    if iteration > 500 and iteration < 1000:
+                        state = prune_shdc_global_brightness_compensation_ema(
+                            scene=scene,
+                            gaussians=gaussians,
+                            pipeline=pipe,
+                            background=background,
+                            state=getattr(gaussians, "_bright_state", None)
+                        )
+
+                    gaussians._bright_state = state
+
+                                            
                     
                 from utils.mask_projection_visualization import visualize_mask_pruning_result
                 if use_mask and iteration in prune_iterations:
@@ -397,6 +447,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     
     parser.add_argument('--prune_iterations', nargs="+", type=int, default=[3000])
+    parser.add_argument('--prune_ratio', type=float, default=1.0)
     
     parser.add_argument("--mask_dir", type=str, default="")
     parser.add_argument("--mask_binary_threshold", type=int, default=128)
@@ -422,6 +473,7 @@ if __name__ == "__main__":
             mask_binary_threshold=args.mask_binary_threshold,
             mask_invert=args.mask_invert,
             prune_iterations=args.prune_iterations,
+            prune_ratio=args.prune_ratio,
             )
 
     # All done

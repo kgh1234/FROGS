@@ -10,7 +10,7 @@
 #
 import matplotlib
 from utils.mask_projection_visualization import visualize_mask_overlap_on_mask, visualize_mask_projection_with_centers
-from scene.pruning_color import auto_brightness_compensation, auto_brightness_saturation_compensation
+from scene.pruning_color import auto_brightness_compensation, auto_brightness_saturation_compensation, auto_brightness_saturation_perview
 
 import torch
 import numpy as np
@@ -537,19 +537,59 @@ class GaussianModel:
             num_prune = prune_mask.sum().item()
             num_keep = (~prune_mask).sum().item()
 
+            if prune_ratio is not None:
+                # 현재 prune 예정 index들
+                prune_idx = torch.where(prune_mask)[0]
+
+                # prune_ratio 비율로 실제 prune 개수 결정
+                target_prune = int(num_prune * prune_ratio)
+
+                if target_prune < num_prune:
+                    # prune 예정된 애들 중 overlap 낮은 순서 정렬
+                    prune_overlap = overlap_ratio[prune_idx]
+                    prune_order = torch.argsort(prune_overlap)  # 작은 게 먼저 제거
+
+                    # prune_ratio 만큼만 prune
+                    to_prune_idx = prune_idx[prune_order[:target_prune]]
+                    to_restore_idx = prune_idx[prune_order[target_prune:]]
+
+                    # 나머지는 복원
+                    prune_mask[to_restore_idx] = False
+
+                # prune_ratio == 1.0 → 전부 prune, 아무 것도 변경 안 함
+
+                # 업데이트된 개수 다시 계산
+                num_prune = prune_mask.sum().item()
+                num_keep = (~prune_mask).sum().item()
+
+                print(f"[MaskPrune@{iter}] prune_ratio applied → "
+                    f"target_prune={target_prune}, final_prune={num_prune}, keep={num_keep}")
+
+            
+
             # ==============================
             # Brightness / Saturation 보정
             # ==============================
-            if iter in mask_prune_iter:
-                self._comp_state = auto_brightness_saturation_compensation(
-                    scene, self, pipeline, background, state=self._comp_state
-                )
+            # if iter in mask_prune_iter:
+            #     self._comp_state = auto_brightness_saturation_compensation(
+            #         scene, self, pipeline, background, state=self._comp_state
+            #     )
 
             self.prune_points(prune_mask)
 
-            self._comp_state = auto_brightness_saturation_compensation(
-                scene, self, pipeline, background, state=self._comp_state
-            )
+            # self._comp_state = auto_brightness_saturation_compensation(
+            #     scene, self, pipeline, background, state=self._comp_state
+            # )
+
+            
+            # self._comp_state = auto_brightness_saturation_perview(
+            #     scene=scene,
+            #     gaussians=self,
+            #     pipeline=pipeline,
+            #     background=background,
+            #     viewpoint_cam=viewpoint_camera,
+            #     state=self._comp_state
+            # )
 
             print(f"[MaskPrune@{iter}] pruned={num_prune}, kept={num_keep}")
 
