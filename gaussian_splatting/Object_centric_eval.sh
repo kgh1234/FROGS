@@ -6,7 +6,7 @@
 
 # ===== 기본 설정 =====
 ROOT="../../masked_datasets/lerf_mask"
-OUTPUT_ROOT="../../output_all/lerf_mask"
+OUTPUT_ROOT="../../output_speedy/lerf_mask"
 ORI_ROOT="../../output_original/lerf_mask"
 GT_OUTPUT_ROOT="../../output_mipsplatting_ori"
 GT_ROOT="../../output_mipsplatting"
@@ -20,7 +20,9 @@ source /opt/conda/etc/profile.d/conda.sh
 # ===== SCENE 반복 =====
 for SCENE_PATH in "${ROOT}"/*; do
     if [ -d "$SCENE_PATH" ]; then
+       SCENE_PATH=
         SCENE_NAME=$(basename "$SCENE_PATH")
+
         OBJECT_NUMBER=${SCENE_NAME##*_}
         GT_SCENE_NAME=${SCENE_NAME%%_*}
         GT_PATH="${GT_ROOT}/${GT_SCENE_NAME}"

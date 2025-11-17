@@ -4,18 +4,18 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="lerf_mask"
+SCENE_NAME="mipnerf"
 ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_all/$SCENE_NAME"
+OUTPUT_ROOT="../../output_test/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="optimization"
+SHEET_NAME="brightness_test"
 
 
 export CUDA_VISIBLE_DEVICES=0
 
 for SCENE_PATH in "$ROOT"/*; do
     if [ -d "$SCENE_PATH" ]; then
-        #SCENE_PATH="../../masked_datasets/$SCENE_NAME/scan64"
+        SCENE_PATH="../../masked_datasets/$SCENE_NAME/bonsai"
         SCENE=$(basename "$SCENE_PATH")
 
         IMG_DIR="$SCENE_PATH/images"

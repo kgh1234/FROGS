@@ -524,7 +524,7 @@ class GaussianModel:
             soft_thresh = np.clip(soft_thresh, 0.001, 0.05)
 
             # --- Hard threshold: 5% 이하이면 무조건 제거 ---
-            hard_thresh = max(0.05 * mean.item(), 0.002)
+            hard_thresh = max(0.6 * mean.item(), 0.002)
 
             print(f"[MaskPrune@{iter}] mean={mean:.4f}, std={std:.4f}, spread={dist_spread:.2f}, "
                 f"strength={pruning_strength:.2f}, mask_ratio={avg_mask_ratio:.2f} → "
@@ -540,16 +540,16 @@ class GaussianModel:
             # ==============================
             # Brightness / Saturation 보정
             # ==============================
-            if iter in mask_prune_iter:
-                self._comp_state = auto_brightness_saturation_compensation(
-                    scene, self, pipeline, background, state=self._comp_state
-                )
+            # if iter in mask_prune_iter:
+            #     self._comp_state = auto_brightness_saturation_compensation(
+            #         scene, self, pipeline, background, state=self._comp_state
+            #     )
 
             self.prune_points(prune_mask)
 
-            self._comp_state = auto_brightness_saturation_compensation(
-                scene, self, pipeline, background, state=self._comp_state
-            )
+            # self._comp_state = auto_brightness_saturation_compensation(
+            #     scene, self, pipeline, background, state=self._comp_state
+            # )
 
             print(f"[MaskPrune@{iter}] pruned={num_prune}, kept={num_keep}")
 
