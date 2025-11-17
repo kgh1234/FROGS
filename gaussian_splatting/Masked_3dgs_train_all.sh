@@ -35,7 +35,7 @@ for SCENE_PATH in "$ROOT"/*; do
         nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
         VRAM_PID=$!
 
-        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 0 --eval 
+        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 0 --prune_ratio 0.4 --eval 
 
         TRAIN_END=$(date +%s)
         TRAIN_TIME=$((TRAIN_END - TRAIN_START))

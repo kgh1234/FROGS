@@ -146,27 +146,26 @@ if __name__ == "__main__":
     # ]
 
     # mask_folder = "../../output_mipsplatting_ori/figurines/test_gt/figurines_36/ours_30000/masks"
-    #prompt = "a green apple with green leaves"
-    prompt = "a blue elephant figurine"
+    # prompt = "a green apple with green leaves"
+    # prompt = "a blue elephant figurine"
     # prompt = "a small yellow plastic dog figure with four long legs standing"
-    #prompt = "a pink candy package with a yellow cartoon character on it"
+    # prompt = "a pink candy package with a yellow cartoon character on it"
     
-    #prompt = "a transparent box with red "
+    prompt = "a transparent box with red "
     
     folders_with_mask = [
-        #"../../output_original/lerf_mask/figurines/test/figurines_36/ours_30000/hemisphere_render",
-        #"../../output_mipsplatting_ori/figurines/test_gt/figurines_36/ours_30000/hemisphere_render",
-        "../../output_speedy/lerf_mask/figurines_49/test/ours_30000/hemisphere_render",
+        "../../output_original/lerf_mask/figurines/test/figurines_65/ours_30000/hemisphere_render",
+        "../../output_mipsplatting_ori/figurines/test_gt/figurines_65/ours_30000/hemisphere_render"
     ]
     
-    # folders_without_mask = [
-    #     "../../output_all/lerf_mask/figurines_65/1103_1537/test/ours_30000/hemisphere_render",
-    # ]
+    folders_without_mask = [
+        "../../output_all/lerf_mask/figurines_65/1103_1537/test/ours_30000/hemisphere_render",
+    ]
 
-    mask_folder = "../../output_mipsplatting_ori/figurines/test_gt/figurines_49/ours_30000/masks"
+    mask_folder = "../../output_mipsplatting_ori/figurines/test_gt/figurines_65/ours_30000/masks"
 
     
 
     evaluate_clip_dino(folders_with_mask, prompt, mask_folder, use_mask=True, output_csv="with_mask.csv")
 
-    #evaluate_clip_dino(folders_without_mask, prompt, mask_folder, use_mask=False, output_csv="no_mask.csv")
+    evaluate_clip_dino(folders_without_mask, prompt, mask_folder, use_mask=False, output_csv="no_mask.csv")
