@@ -427,7 +427,6 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
     
-    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[3000])
     parser.add_argument('--prune_ratio', type=float, default=1.0)
     
 
