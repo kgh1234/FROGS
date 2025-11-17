@@ -6,9 +6,9 @@
 
 SCENE_NAME="lerf_mask"
 ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_masked_refine_lerf/$SCENE_NAME"
+OUTPUT_ROOT="../../output_objectgs/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="ablation"
+SHEET_NAME="ObjectGS"
 
 export CUDA_VISIBLE_DEVICES=0
 

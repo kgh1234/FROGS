@@ -5,10 +5,10 @@
 # =============================================
 
 SCENE_NAME="mipnerf"
-ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_masked_re/$SCENE_NAME"
+ROOT="../original_datasets/$SCENE_NAME"
+OUTPUT_ROOT="../output_speedysplat_re/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_${SCENE_NAME}.csv"
-SHEET_NAME="Masked_3DGS"
+SHEET_NAME="Re_Speedysplat"
 
 export CUDA_VISIBLE_DEVICES=0
 
@@ -103,6 +103,10 @@ for SCENE_PATH in "$ROOT"/*; do
             fi
             echo "$SCENE,run${i},$SSIM,$PSNR,$LPIPS,$TRAIN_TIME,$RENDER_TIME,$VRAM_MAX,$GAUSSIAN_COUNT" >> "$CSV_FILE"
 
+            echo "[Run $i/3] 완료. GPU 쿨다운 중..."
+            sleep 10
+            nvidia-smi -q -d TEMPERATURE | grep "GPU Current Temp"
+
         done
 
         # 평균 계산
@@ -115,7 +119,7 @@ for SCENE_PATH in "$ROOT"/*; do
         AVG_GAUSSIAN=$((TOTAL_GAUSSIAN / 3))
 
         # Google Sheet 업데이트 (평균만 기록)
-        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$AVG_SSIM" "$AVG_PSNR" "$AVG_LPIPS" "$AVG_TRAIN_TIME" "$AVG_RENDER_TIME" "$AVG_VRAM" "$AVG_GAUSSIAN"
+        python ../update_sheet.py "$SHEET_NAME" "$SCENE" "$AVG_SSIM" "$AVG_PSNR" "$AVG_LPIPS" "$AVG_TRAIN_TIME" "$AVG_RENDER_TIME" "$AVG_VRAM" "$AVG_GAUSSIAN"
 
         echo "Averaged Metrics for $SCENE → Google Sheet updated."
         echo "====================================="
@@ -127,10 +131,11 @@ echo "All scenes processed."
 
 
 SCENE_NAME="lerf_mask"
-ROOT="../../original_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_original_re/$SCENE_NAME"
+ROOT="../original_datasets/$SCENE_NAME"
+OUTPUT_ROOT="../output_speedysplat_re/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_${SCENE_NAME}.csv"
-SHEET_NAME="Re_Original_3DGS"
+SHEET_NAME="Re_Speedysplat"
+
 
 export CUDA_VISIBLE_DEVICES=0
 
@@ -237,7 +242,7 @@ for SCENE_PATH in "$ROOT"/*; do
         AVG_GAUSSIAN=$((TOTAL_GAUSSIAN / 3))
 
         # Google Sheet 업데이트 (평균만 기록)
-        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$AVG_SSIM" "$AVG_PSNR" "$AVG_LPIPS" "$AVG_TRAIN_TIME" "$AVG_RENDER_TIME" "$AVG_VRAM" "$AVG_GAUSSIAN"
+        python ../update_sheet.py "$SHEET_NAME" "$SCENE" "$AVG_SSIM" "$AVG_PSNR" "$AVG_LPIPS" "$AVG_TRAIN_TIME" "$AVG_RENDER_TIME" "$AVG_VRAM" "$AVG_GAUSSIAN"
 
         echo "Averaged Metrics for $SCENE → Google Sheet updated."
         echo "====================================="

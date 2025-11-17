@@ -12,13 +12,14 @@ os.environ["DISPLAY"] = ":0"
 COLMAP_EXE = "colmap"                     # or full path if needed
 MAGICK_EXE = "magick"                     # for resize (optional)
 COLMAP_SCRIPT = "convert.py"     # 현재 디렉터리에 있는 converter 파일
-DATASET_ROOT = "/workspace/masked_datasets/dtu"   # DTU dataset 루트 경로
-SCAN_LIST = ["scan1", "scan2", "scan3", "scan4", "scan5"]
+DATASET_ROOT = "/workspace/masked_datasets/DTU_chaewon"   # DTU dataset 루트 경로
 USE_GPU = False
 DO_RESIZE = True
 LOG_DIR = os.path.join(DATASET_ROOT, "colmap_logs")
 
 # ======================
+
+SCAN_LIST = os.listdir(DATASET_ROOT)
 
 os.makedirs(LOG_DIR, exist_ok=True)
 

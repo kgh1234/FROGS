@@ -1,12 +1,13 @@
 import os, cv2, numpy as np
 from pathlib import Path
 
-ROOT = '../../masked_datasets/DTU_chaewon'
+ROOT = '../../masked_datasets/mipnerf'
 
 scenelist = os.listdir(ROOT)
 
 for scene in scenelist:
     scene_dir = Path(os.path.join(ROOT, scene))
+    scene_dir = Path('../../masked_datasets/mipnerf/garden')
 
     if not scene_dir.is_dir():
         print("not a directory:", scene)
@@ -14,7 +15,7 @@ for scene in scenelist:
     
 
     ori_dir = scene_dir / "images_ori"
-    mask_dir = scene_dir / "masks"
+    mask_dir = scene_dir / "mask"
     out_dir = scene_dir / "images"
     
     if ori_dir.exists():
@@ -33,7 +34,7 @@ for scene in scenelist:
         base = Path(fname).stem
         mask_path = None
         for ext in [".png", ".jpg", ".jpeg"]:
-            p = mask_dir / f"{base}_mask{ext}"
+            p = mask_dir / f"{base}{ext}"
             if p.exists():
                 mask_path = p
             break

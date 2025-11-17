@@ -298,42 +298,23 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         background=background,     
                         prev_brightness=prev_brightness 
                     )
-                    # from scene.pruning_color import prune_shdc_global_brightness_compensation
-                    # if iteration in [700,1200]:
-                    #     prune_shdc_global_brightness_compensation(
-                    #         scene=scene,
-                    #         gaussians=gaussians,
-                    #         pipeline=pipe,
-                    #         background=background,
-                    #     )
-
-                    from scene.pruning_color import prune_shdc_global_brightness_compensation_ema
-                    if iteration > 500 and iteration < 1000:
-                        state = prune_shdc_global_brightness_compensation_ema(
-                            scene=scene,
-                            gaussians=gaussians,
-                            pipeline=pipe,
-                            background=background,
-                            state=getattr(gaussians, "_bright_state", None)
-                        )
-
-                    gaussians._bright_state = state
+                    
 
                                             
                     
-                from utils.mask_projection_visualization import visualize_mask_pruning_result
-                if use_mask and iteration in prune_iterations:
-                    mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
-                    if mask_path:
-                        visualize_mask_pruning_result(
-                            xyz=gaussians.get_xyz,
-                            viewpoint_cam=viewpoint_cam,
-                            mask_path=mask_path,
-                            prune_mask=getattr(gaussians, "last_prune_mask", None)
-                            if hasattr(gaussians, "last_prune_mask") else None,
-                            invert=False,
-                            save_path=f"{scene.model_path}/debug/mask_prune_vis_iter{iteration}.png"
-                )
+                # from utils.mask_projection_visualization import visualize_mask_pruning_result
+                # if use_mask and iteration in prune_iterations:
+                #     mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
+                #     if mask_path:
+                #         visualize_mask_pruning_result(
+                #             xyz=gaussians.get_xyz,
+                #             viewpoint_cam=viewpoint_cam,
+                #             mask_path=mask_path,
+                #             prune_mask=getattr(gaussians, "last_prune_mask", None)
+                #             if hasattr(gaussians, "last_prune_mask") else None,
+                #             invert=False,
+                #             save_path=f"{scene.model_path}/debug/mask_prune_vis_iter{iteration}.png"
+                # )
 
 
 
@@ -350,18 +331,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     gaussians.optimizer.zero_grad(set_to_none = True)
 
 
-            if iteration % 100 == 0:  
-                #gaussian_overlap(scene, gaussians, mask_dir, iteration)
-                gauss_state = {
-                    "positions": gaussians.get_xyz.detach().cpu().numpy(),
-                    "scales": gaussians.get_scaling.detach().cpu().numpy(),
-                    "opacities": gaussians.get_opacity.detach().cpu().numpy(),
-                }
-                if stopper.update(gauss_state):
-                    print(f"\n[EarlyStop] Gaussian stats converged at iteration {iteration}")
-                    print(f"[ITER {iteration}] Saving and exiting...")
-                    scene.save(iteration)
-                    return
+            # if iteration % 100 == 0:  
+            #     #gaussian_overlap(scene, gaussians, mask_dir, iteration)
+            #     gauss_state = {
+            #         "positions": gaussians.get_xyz.detach().cpu().numpy(),
+            #         "scales": gaussians.get_scaling.detach().cpu().numpy(),
+            #         "opacities": gaussians.get_opacity.detach().cpu().numpy(),
+            #     }
+            #     if stopper.update(gauss_state):
+            #         print(f"\n[EarlyStop] Gaussian stats converged at iteration {iteration}")
+            #         print(f"[ITER {iteration}] Saving and exiting...")
+            #         scene.save(iteration)
+            #         return
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
@@ -449,6 +430,9 @@ if __name__ == "__main__":
     parser.add_argument('--prune_iterations', nargs="+", type=int, default=[3000])
     parser.add_argument('--prune_ratio', type=float, default=1.0)
     
+
+    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[600, 1200, 1800])
+
     parser.add_argument("--mask_dir", type=str, default="")
     parser.add_argument("--mask_binary_threshold", type=int, default=128)
     parser.add_argument("--mask_invert", action="store_true")

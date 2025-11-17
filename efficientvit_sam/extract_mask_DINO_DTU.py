@@ -465,7 +465,7 @@ from efficientvit.sam_model_zoo import create_efficientvit_sam_model
 from efficientvit.models.efficientvit.sam import EfficientViTSamPredictor
 
 # ====== PATHS ======
-DTU_ROOT = "../../masked_datasets/tanks_temples"
+DTU_ROOT = "../../masked_datasets/green_apple/green_apple"
 SAM_CKPT = "../efficientvit_sam/weight/efficientvit_sam_xl1.pt"
 
 DATASET_ROOT = DTU_ROOT
@@ -506,9 +506,9 @@ def draw_overlay(image_bgr, boxes_xyxy, best_mask=None):
 def process_scan(scan_name, predictor):
     """각 scan 폴더의 bbox JSON을 불러와 SAM으로 마스크 생성"""
     scan_path = os.path.join(DATASET_ROOT, scan_name)
-    image_dir = os.path.join(scan_path, "images")
+    image_dir = os.path.join(scan_path, "hemisphere_render")
     label_dir = os.path.join(scan_path, "labels")
-    output_dir = os.path.join(OUTPUT_ROOT, scan_name, "masks_v3")
+    output_dir = os.path.join(OUTPUT_ROOT, scan_name, "mask")
 
     if not os.path.exists(image_dir):
         print(f"[WARN] {scan_name}: images 폴더 없음. 건너뜀.")
@@ -528,7 +528,7 @@ def process_scan(scan_name, predictor):
         name, _ = os.path.splitext(fname)
         json_path = os.path.join(label_dir, f"{name}_bbox.json")
         img_path = os.path.join(image_dir, fname)
-        out_mask_path = os.path.join(output_dir, f"{name}_mask.png")
+        out_mask_path = os.path.join(output_dir, f"{name}.png")
 
         # if os.path.exists(out_mask_path):
         #     print(f"⏭️ {fname}: 이미 마스크 존재 → 건너뜀.")
@@ -599,8 +599,9 @@ def main():
     print("✅ SAM 로드 완료\n")
 
     # ✅ 특정 scan만 실행
-    TARGET_SCAN = "96"  # 예: scan10만 실행
-    scan_name = f"scan{TARGET_SCAN}"
+    # TARGET_SCAN = "96"  # 예: scan10만 실행
+    # scan_name = f"scan{TARGET_SCAN}"
+    scan_name = "ours_30000"
 
     if not os.path.isdir(os.path.join(DATASET_ROOT, scan_name)):
         print(f"❌ {scan_name} 폴더가 존재하지 않습니다.")
