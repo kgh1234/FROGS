@@ -6,9 +6,9 @@
 
 SCENE_NAME="lerf_mask"
 ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_test/$SCENE_NAME"
+OUTPUT_ROOT="../../test/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="brightness_test"
+SHEET_NAME="test"
 
 
 export CUDA_VISIBLE_DEVICES=0
@@ -35,7 +35,7 @@ for SCENE_PATH in "$ROOT"/*; do
         nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
         VRAM_PID=$!
 
-        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 0 --prune_ratio 1.0 --eval 
+        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 0 --prune_ratio 1.0 --eval --iterations 1000
 
         TRAIN_END=$(date +%s)
         TRAIN_TIME=$((TRAIN_END - TRAIN_START))
@@ -52,6 +52,11 @@ for SCENE_PATH in "$ROOT"/*; do
         RENDER_END=$(date +%s)
         RENDER_TIME=$((RENDER_END - RENDER_START))
         echo "Rendering time: ${RENDER_TIME}s"
+
+
+        python render_FPS.py -m "$OUT_DIR" | tee fps_tmp.log
+        FPS=$(grep -oP 'FPS\s*:\s*\K[0-9.e+-]+' fps_tmp.log)
+        echo "FPS: $FPS"
 
 
 
@@ -83,18 +88,20 @@ for SCENE_PATH in "$ROOT"/*; do
         LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
         MIOU=$(grep "mIoU" metrics_tmp.log | awk '{print $3}')
 
-        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX" "$GAUSSIAN_COUNT"
+        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$FPS" "$VRAM_MAX" "$GAUSSIAN_COUNT"
 
 
         # CSV 작성
         if [ ! -f "$CSV_FILE" ]; then
-            echo "scene,SSIM,PSNR,LPIPS,MIOU" > "$CSV_FILE"
+            echo "scene,SSIM,PSNR,LPIPS,MIOU,FPS" > "$CSV_FILE"
         fi
-        echo "$SCENE,$SSIM,$PSNR,$LPIPS,$MIOU" >> "$CSV_FILE"
+        echo "$SCENE,$SSIM,$PSNR,$LPIPS,$MIOU, $FPS" >> "$CSV_FILE"
 
         echo "Metrics for $SCENE appended to $CSV_FILE"
         echo "Finished: $SCENE"
         echo
+
+        
     fi
 done
 
