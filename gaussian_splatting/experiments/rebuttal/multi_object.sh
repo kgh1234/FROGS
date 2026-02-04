@@ -4,64 +4,32 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="dtu_easy"
-ROOT="../../rebuttal_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../REBUTTAL/DTU_ours/$SCENE_NAME"
+SCENE_NAME="multi_object"
+ROOT="../../masked_datasets/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="rebuttal_exp2"
+SHEET_NAME="rebuttal_multi"
+OUT_DIR="../../output_pup/figurines_80_50"
 
 
 export CUDA_VISIBLE_DEVICES=0
 
 for SCENE_PATH in "$ROOT"/*; do
     if [ -d "$SCENE_PATH" ]; then
-        #SCENE_PATH="../../masked_datasets/$SCENE_NAME/allobjects"
         SCENE=$(basename "$SCENE_PATH")
 
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        #OUT_DIR="$OUTPUT_ROOT/${SCENE}/$(date -d '+9 hours' +%m%d_%H%M)"
-        OUT_DIR="$OUTPUT_ROOT/${SCENE}"
+
 
         echo "====================================="
         echo "Processing scene: $SCENE"
         echo "====================================="
 
-        echo " Training 시작..."
-        
-        TRAIN_START=$(date +%s)
-        LOGFILE="vram_${SCENE}.log"
-        nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
-        VRAM_PID=$!
-
-        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_ratio 1.0 --eval --threshold_prune_k 1.0
-
-        TRAIN_END=$(date +%s)
-        TRAIN_TIME=$((TRAIN_END - TRAIN_START))
-        echo "Training time: ${TRAIN_TIME}s"
-
-        kill $VRAM_PID 2>/dev/null
-        VRAM_MAX=$(awk 'BEGIN{max=0}{if($1>max)max=$1}END{print max}' "$LOGFILE")
-        rm -f "$LOGFILE"
-
-        echo "Rendering: $SCENE"
- 
-        RENDER_START=$(date +%s)
-        python render_with_mask.py -m "$OUT_DIR"
-        RENDER_END=$(date +%s)
-        RENDER_TIME=$((RENDER_END - RENDER_START))
-        echo "Rendering time: ${RENDER_TIME}s"
-
-
-        python render_FPS.py -m "$OUT_DIR" | tee fps_tmp.log
-        FPS=$(grep -oP 'FPS\s*:\s*\K[0-9.e+-]+' fps_tmp.log)
-        echo "FPS: $FPS"
-
 
 
         echo "Evaluating metrics: $SCENE"
-        python metrics_object_mIoU.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
+        python metrics_object.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
 
 
         POINT_CLOUD_DIR="$OUT_DIR/point_cloud"
@@ -100,7 +68,6 @@ for SCENE_PATH in "$ROOT"/*; do
         echo "Metrics for $SCENE appended to $CSV_FILE"
         echo "Finished: $SCENE"
         echo
-
 
         
     fi

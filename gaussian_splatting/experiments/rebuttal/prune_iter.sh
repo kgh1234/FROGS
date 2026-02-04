@@ -4,25 +4,27 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="dtu_easy"
-ROOT="../../rebuttal_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../REBUTTAL/DTU_ours/$SCENE_NAME"
+
+
+SCENE_NAME="lerf_mask"
+ROOT="../../masked_datasets/$SCENE_NAME"
+OUTPUT_ROOT="../../rebuttal/prune_iter/${SCENE_NAME}1000_2000_3000"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="rebuttal_exp2"
+SHEET_NAME="rebuttal_prune_iter"
 
 
 export CUDA_VISIBLE_DEVICES=0
 
 for SCENE_PATH in "$ROOT"/*; do
     if [ -d "$SCENE_PATH" ]; then
-        #SCENE_PATH="../../masked_datasets/$SCENE_NAME/allobjects"
+        #SCENE_PATH="../../masked_datasets/$SCENE_NAME/bonsai"
         SCENE=$(basename "$SCENE_PATH")
 
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        #OUT_DIR="$OUTPUT_ROOT/${SCENE}/$(date -d '+9 hours' +%m%d_%H%M)"
         OUT_DIR="$OUTPUT_ROOT/${SCENE}"
+
 
         echo "====================================="
         echo "Processing scene: $SCENE"
@@ -35,7 +37,7 @@ for SCENE_PATH in "$ROOT"/*; do
         nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
         VRAM_PID=$!
 
-        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_ratio 1.0 --eval --threshold_prune_k 1.0
+        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_iterations 1000 2000 3000 --prune_ratio 1.0 --eval 
 
         TRAIN_END=$(date +%s)
         TRAIN_TIME=$((TRAIN_END - TRAIN_START))
@@ -88,7 +90,7 @@ for SCENE_PATH in "$ROOT"/*; do
         LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
         MIOU=$(grep "mIoU" metrics_tmp.log | awk '{print $3}')
 
-        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$FPS" "$VRAM_MAX" "$GAUSSIAN_COUNT"
+        python ../../update_sheet.py "$SHEET_NAME" "${SCENE}_1000_2000_3000" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$FPS" "$VRAM_MAX" "$GAUSSIAN_COUNT"
 
 
         # CSV 작성
@@ -100,7 +102,6 @@ for SCENE_PATH in "$ROOT"/*; do
         echo "Metrics for $SCENE appended to $CSV_FILE"
         echo "Finished: $SCENE"
         echo
-
 
         
     fi

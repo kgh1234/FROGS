@@ -5,7 +5,7 @@
 # =============================================
 
 # ===== 기본 설정 =====
-ROOT="../../masked_datasets/lerf_mask"
+ROOT="../../masked_datasets/"
 OUTPUT_ROOT="../../output_speedy/lerf_mask"
 ORI_ROOT="../../output_original/lerf_mask"
 GT_OUTPUT_ROOT="../../output_mipsplatting_ori"
