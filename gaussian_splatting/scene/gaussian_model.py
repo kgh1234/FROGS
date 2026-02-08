@@ -463,9 +463,9 @@ class GaussianModel:
                     scene=None,
                     iter=None,
                     viewpoint_camera=None,
-                    mask_prune_iter=[600],
+                    mask_prune_iter=[600,1200,1800],
                     mask_invert=False,
-                    prune_ratio=0.8,
+                    prune_ratio=1.0,
                     mask_threshold=0.3,
                     pipeline=None,      
                     background=None,     
@@ -571,9 +571,9 @@ class GaussianModel:
 
             self.prune_points(prune_mask)
 
-            self._comp_state = auto_brightness_saturation_compensation(
-                scene, self, pipeline, background, state=self._comp_state
-            )
+            # self._comp_state = auto_brightness_saturation_compensation(
+            #     scene, self, pipeline, background, state=self._comp_state
+            # )
 
             
             # self._comp_state = auto_brightness_saturation_perview(

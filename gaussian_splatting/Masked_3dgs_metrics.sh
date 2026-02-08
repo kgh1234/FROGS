@@ -4,17 +4,19 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="lerf_mask"
-ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../output_objectgs/$SCENE_NAME"
+SCENE_NAME="mipnerf_25"
+ROOT="../../rebuttal_datasets/$SCENE_NAME"
+OUTPUT_ROOT="../../REBUTTAL/mipnerf_3dgs/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="ObjectGS"
+SHEET_NAME="REEXP1_25"
 
 export CUDA_VISIBLE_DEVICES=0
 
 for SCENE_PATH in "$ROOT"/*; do
     if [ -d "$SCENE_PATH" ]; then
         SCENE=$(basename "$SCENE_PATH")
+        #SCENE='Truck'
+        #OUTPUT_ROOT="../../gaussian-splatting-pup/experiments/${SCENE}_80_50"
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
@@ -29,7 +31,7 @@ for SCENE_PATH in "$ROOT"/*; do
         PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
         LPIPS=$(grep "LPIPS" metrics_tmp.log | awk '{print $2}')
 
-        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX"
+        python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "" "$TRAIN_TIME" "$RENDER_TIME" "$VRAM_MAX" "" ""
 
 
 

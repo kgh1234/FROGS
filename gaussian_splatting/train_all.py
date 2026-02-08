@@ -133,8 +133,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
             # --- SH DC(0번째 SH coefficient) 기록 ---
             # gaussians.get_features_dc(): [N,3] 형태일 것
-            sh_dc_value = gaussians.get_features_dc.mean().item()
-            shdc_log.append(sh_dc_value)
+            #sh_dc_value = gaussians.get_features_dc.mean().item()
+            #shdc_log.append(sh_dc_value)
 
             # --- iteration ---
             iter_log.append(iteration)
@@ -245,12 +245,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
         with torch.no_grad():
             # Progress bar
-            ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
-            from scene.pruning_color import ema_brightness_compensation_from_image
+            # ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
+            # ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+            # from scene.pruning_color import ema_brightness_compensation_from_image
 
-            if not hasattr(gaussians, "_ema_bright_state"):
-                gaussians._ema_bright_state = None
+            # if not hasattr(gaussians, "_ema_bright_state"):
+            #     gaussians._ema_bright_state = None
 
             # pruning 시점 또는 주기적 호출 (예: 50 iter마다)
             # if (iteration in prune_iterations):
@@ -270,7 +270,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
 
             if iteration % 10 == 0:
-                progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
+                #progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
                 progress_bar.update(10)
             if iteration == opt.iterations:
                 progress_bar.close()
@@ -297,14 +297,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     if 'prev_brightness' not in locals():
                         prev_brightness = None
                     #prune_iter =[0]
-                    prune_iter=[600, 900, 1200]
+                    prune_iter=[600, 1200,1800]
                     # prune 직전 brightness 저장
                     # if not hasattr(gaussians, "prev_brightness") or gaussians.prev_brightness is None or iteration in prune_iter:
                     #     out = render(viewpoint_cam, gaussians, pipe, background)
                     #     img = out["render"].clamp(0, 1)
                     #     gaussians.prev_brightness = img.mean().item()
-                    out = render(viewpoint_cam, gaussians, pipe, background)
-                    gaussians.prev_brightness = out["render"].clamp(0,1).mean().item()
+                    #out = render(viewpoint_cam, gaussians, pipe, background)
+                    #gaussians.prev_brightness = out["render"].clamp(0,1).mean().item()
 
 
                    
@@ -371,17 +371,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
 
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(10,6))
-    plt.plot(iter_log, opacity_log, label="Opacity Mean")
-    plt.plot(iter_log, shdc_log, label="SH-DC Mean")
-    plt.xlabel("Iteration")
-    plt.ylabel("Value")
-    plt.title("Opacity & SH-DC Changes Over Iterations")
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("brightness_opacity_shdc_curve.png", dpi=200)
-    plt.close()
+    # import matplotlib.pyplot as plt
+    # plt.figure(figsize=(10,6))
+    # plt.plot(iter_log, opacity_log, label="Opacity Mean")
+    # plt.plot(iter_log, shdc_log, label="SH-DC Mean")
+    # plt.xlabel("Iteration")
+    # plt.ylabel("Value")
+    # plt.title("Opacity & SH-DC Changes Over Iterations")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig("brightness_opacity_shdc_curve.png", dpi=200)
+    # plt.close()
 
 
 def prepare_output_and_logger(args):    
