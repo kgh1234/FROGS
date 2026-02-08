@@ -469,7 +469,10 @@ class GaussianModel:
                     mask_threshold=0.3,
                     pipeline=None,      
                     background=None,     
-                    prev_brightness=None):  
+                    prev_brightness=None,
+                    k=0.5,
+                    max_pruning=0.05
+                    ):  
 
         from scene.view_consistency import gaussian_mask_overlap
 
@@ -514,11 +517,11 @@ class GaussianModel:
 
             dist_spread = (std / (mean + 1e-6)).clamp(0, 5)
             pruning_strength = torch.tanh(dist_spread).item()  # 0~1
-            base_thresh = mean + 0.5 * std
+            base_thresh = mean + k * std
             base_thresh = max(base_thresh.item(), 0.002)
 
             soft_thresh = base_thresh * (1.0 - 0.6 * pruning_strength * mask_weight)
-            soft_thresh = np.clip(soft_thresh, 0.001, 0.05)
+            soft_thresh = np.clip(soft_thresh, 0.001, max_pruning)
 
 
             hard_thresh = max(0.6 * mean.item(), 0.002)

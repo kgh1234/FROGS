@@ -108,7 +108,7 @@ def gaussian_view_consistency(scene, gaussians, mask_dir, mask_invert=False, thr
     import matplotlib.pyplot as plt
     from scene.view_consistency import gaussian_mask_overlap, _find_mask_path, _load_binary_mask
 
-    LOW_HIT_THRESHOLD = 0.05
+    LOW_HIT_THRESHOLD = threshold
     print(f"[GaussianViewConsistency] Checking {len(scene.getTrainCameras())} training views...")
 
     # === Step 1. Compute global overlap stats ===
@@ -255,7 +255,7 @@ def compute_view_jaccard(scene, gaussians, pipeline, background, threshold=0.2):
     return bad_indices
 
 
-def compute_view_jaccard_fast(scene, gaussians, pipeline, background, threshold=0.2, sample_k=20):
+def compute_view_jaccard_fast(scene, gaussians, pipeline, background, threshold, sample_k=20):
     views = scene.getTrainCameras()
     n = len(views)
     visible_sets = []

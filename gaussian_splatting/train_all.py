@@ -65,7 +65,7 @@ except:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
-             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iterations=[], prune_ratio=1.0):
+             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iter=None, prune_ratio=1.0, cov_threshold=None, hit_ratio=None, threshold_prune_k=None, max_pruning=None):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -146,7 +146,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
         # # filtering on/off
         if iteration == 1000 and iteration < opt.densify_until_iter:
-            bad_idx = compute_view_jaccard_fast(scene, gaussians, pipe, background, threshold=0.2)
+            bad_idx = compute_view_jaccard_fast(scene, gaussians, pipe, background, threshold=cov_threshold)
             if len(bad_idx) > 0:
                 train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
                 print(f"[Iter {iteration}] Removed {len(bad_idx)} low-consistency views from training.")
@@ -159,7 +159,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 gaussians=gaussians,
                 mask_dir=mask_dir,
                 mask_invert=mask_invert,
-                threshold=0.05,       # or fixed like 0.05
+                threshold=hit_ratio,       # or fixed like 0.05
             )
             if bad_idx is not None and len(bad_idx) > 0:
                 train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
@@ -187,6 +187,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
+        curr_brightness = image.clamp(0,1).mean().item()
+
+        # TensorBoard 기록
+        if tb_writer:
+            tb_writer.add_scalar('train/brightness', curr_brightness, iteration)
+            tb_writer.add_scalar('train/opacity_mean', mean_opacity, iteration)
+            tb_writer.add_scalar('train/shdc_mean', sh_dc_value, iteration)
+
+
+        # 나중에 plot 그리기 위해 저장
+        if 'brightness_log' not in locals():
+            brightness_log = []
+        brightness_log.append(curr_brightness)
+
         if viewpoint_cam.alpha_mask is not None:
             alpha_mask = viewpoint_cam.alpha_mask.cuda()
             image *= alpha_mask
@@ -197,7 +211,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         
         
         use_mask = mask_dir is not None and len(mask_dir) > 0
-        if use_mask and (iteration > prune_iterations[0]):
+        if use_mask and (iteration > prune_iter[0]):
             
             mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
             
@@ -253,20 +267,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             #     gaussians._ema_bright_state = None
 
             # pruning 시점 또는 주기적 호출 (예: 50 iter마다)
-            # if (iteration in prune_iterations):
-            #     gaussians._ema_bright_state = ema_brightness_compensation_from_image(
-            #         gaussians=gaussians,
-            #         render_img=image,      # 현재 view에서 렌더한 결과 그대로 사용
-            #          visibility_filter= visibility_filter,
-            #         state=gaussians._ema_bright_state,
-            #         iteration=iteration,
-            #         warmup_iters=500,
-            #         luma_momentum=0.95,
-            #         tolerance=0.98,
-            #         max_global_gain=1.2,
-            #         max_step_gain=1.01,
-            #         step_alpha=0.2,
-            #     )
+            if (iteration % 100 == 0) or (iteration in prune_iter):
+                gaussians._ema_bright_state = ema_brightness_compensation_from_image(
+                    gaussians=gaussians,
+                    render_img=image,      # 현재 view에서 렌더한 결과 그대로 사용
+                     visibility_filter= visibility_filter,
+                    state=gaussians._ema_bright_state,
+                    iteration=iteration,
+                    warmup_iters=500,
+                    luma_momentum=0.95,
+                    tolerance=0.98,
+                    max_global_gain=1.2,
+                    max_step_gain=1.01,
+                    step_alpha=0.2,
+                )
 
 
             if iteration % 10 == 0:
@@ -318,7 +332,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         prune_ratio=prune_ratio,
                         pipeline=pipe,            
                         background=background,     
-                        prev_brightness=prev_brightness 
+                        prev_brightness=prev_brightness,
+                        k=threshold_prune_k,
+                        max_pruning=max_pruning
                     )
                     
 
@@ -472,6 +488,11 @@ if __name__ == "__main__":
     parser.add_argument("--mask_binary_threshold", type=int, default=128)
     parser.add_argument("--mask_invert", action="store_true")
     
+    parser.add_argument("--cov_threshold", type=float, default=0.2)
+    parser.add_argument("--hit_ratio", type=float, default=0.05)
+    parser.add_argument("--threshold_prune_k", type=float, default=0.5)
+    parser.add_argument("--pruning_max", type=float, default=0.05)
+    
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     
@@ -491,8 +512,12 @@ if __name__ == "__main__":
             mask_dir=args.mask_dir if args.mask_dir else None,
             mask_binary_threshold=args.mask_binary_threshold,
             mask_invert=args.mask_invert,
-            prune_iterations=args.prune_iterations,
+            prune_iter=args.prune_iterations,
             prune_ratio=args.prune_ratio,
+            cov_threshold=args.cov_threshold,
+            hit_ratio=args.hit_ratio,
+            threshold_prune_k=args.threshold_prune_k, 
+            max_pruning=args.pruning_max
             )
 
     # All done
