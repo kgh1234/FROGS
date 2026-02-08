@@ -6,22 +6,26 @@
 
 SCENE_NAME="mipnerf"
 ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../rebuttal_ours/$SCENE_NAME"
+OUTPUT_ROOT="../../check/frogs/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="rebuttal_frogs"
+SHEET_NAME="Check"
 
 
 export CUDA_VISIBLE_DEVICES=0
 
 for SCENE_PATH in "$ROOT"/*; do
     if [ -d "$SCENE_PATH" ]; then
-        #SCENE_PATH="../../masked_datasets/$SCENE_NAME/bonsai"
+        SCENE_PATH="../../masked_datasets/$SCENE_NAME/counter"
         SCENE=$(basename "$SCENE_PATH")
+        # if [ "$SCENE" == 'bicycle' ]; then
+        #     continue
+        # fi
 
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        OUT_DIR="$OUTPUT_ROOT/${SCENE}/$(date -d '+9 hours' +%m%d_%H%M)"
+       # OUT_DIR="$OUTPUT_ROOT/${SCENE}/$(date -d '+9 hours' +%m%d_%H%M)"
+        OUT_DIR="$OUTPUT_ROOT/${SCENE}"
 
 
         echo "====================================="
@@ -35,7 +39,7 @@ for SCENE_PATH in "$ROOT"/*; do
         nvidia-smi --query-gpu=memory.used --format=csv,nounits,noheader -l 2 > "$LOGFILE" &
         VRAM_PID=$!
 
-        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_ratio 1.0 --eval
+#        python train_all.py -s "$SCENE_PATH" -m "$OUT_DIR" --mask_dir "$MASK_DIR" --prune_ratio 1.0 --eval
 
         TRAIN_END=$(date +%s)
         TRAIN_TIME=$((TRAIN_END - TRAIN_START))
@@ -48,7 +52,7 @@ for SCENE_PATH in "$ROOT"/*; do
         echo "Rendering: $SCENE"
  
         RENDER_START=$(date +%s)
-        python render_with_mask.py -m "$OUT_DIR"
+        python render_mask.py -m "$OUT_DIR" --mask_dir "$MASK_DIR"
         RENDER_END=$(date +%s)
         RENDER_TIME=$((RENDER_END - RENDER_START))
         echo "Rendering time: ${RENDER_TIME}s"
