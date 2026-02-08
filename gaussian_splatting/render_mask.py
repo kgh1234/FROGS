@@ -110,29 +110,6 @@ def render_set(model_path, name, iteration, views, gaussians, pipeline, backgrou
             rendering = rendering[..., rendering.shape[-1] // 2:]
             gt = gt[..., gt.shape[-1] // 2:]
 
-        # ---------- Apply mask (optional) ----------
-        if use_mask:
-            H, W = rendering.shape[-2:]
-            key_name = getattr(view, "image_name", None)
-            if key_name is None or not isinstance(key_name, str) or len(key_name) == 0:
-                key_name = _stem(getattr(view, "image_path", "frame"))
-
-            if key_name not in mask_cache:
-                mp = _find_mask_path(mask_dir, key_name)
-                if mp is None:
-                    # 마지막 시도: 스템 재시도
-                    mp = _find_mask_path(mask_dir, _stem(key_name))
-                if mp is None:
-                    # 마스크 없으면 전부 1로 저장(경고)
-                    print(f"[WARN] mask not found for {key_name}. Using all-ones.")
-                    mask_cache[key_name] = torch.ones((H,W), device=rendering.device, dtype=torch.float32)
-                else:
-                    mask_cache[key_name] = _load_binary_mask(mp, H, W, thr=mask_thr, invert=mask_invert, device=rendering.device)
-
-            mask2d = mask_cache[key_name]              # (H,W)
-            mask3 = mask2d.unsqueeze(0)                # (1,H,W)
-            rendering = rendering * mask3              # 배경 0
-            gt = gt * mask3
 
         # ---------- Save ----------
         out_name = f"{idx:05d}.png"
