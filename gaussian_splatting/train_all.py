@@ -125,19 +125,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         gaussians.update_learning_rate(iteration)
 
 
-        with torch.no_grad():
+        # with torch.no_grad():
 
-            # --- Opacity 평균 기록 ---
-            mean_opacity = gaussians.get_opacity.mean().item()
-            opacity_log.append(mean_opacity)
+        #     # --- Opacity 평균 기록 ---
+        #     mean_opacity = gaussians.get_opacity.mean().item()
+        #     opacity_log.append(mean_opacity)
 
-            # --- SH DC(0번째 SH coefficient) 기록 ---
-            # gaussians.get_features_dc(): [N,3] 형태일 것
-            #sh_dc_value = gaussians.get_features_dc.mean().item()
-            #shdc_log.append(sh_dc_value)
+        #     # --- SH DC(0번째 SH coefficient) 기록 ---
+        #     # gaussians.get_features_dc(): [N,3] 형태일 것
+        #     #sh_dc_value = gaussians.get_features_dc.mean().item()
+        #     #shdc_log.append(sh_dc_value)
 
-            # --- iteration ---
-            iter_log.append(iteration)
+        #     # --- iteration ---
+        #     iter_log.append(iteration)
 
 
         # Every 1000 its we increase the levels of SH up to a maximum degree
@@ -185,25 +185,26 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
+
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         curr_brightness = image.clamp(0,1).mean().item()
 
-        # TensorBoard 기록
-        if tb_writer:
-            tb_writer.add_scalar('train/brightness', curr_brightness, iteration)
-            tb_writer.add_scalar('train/opacity_mean', mean_opacity, iteration)
-            #tb_writer.add_scalar('train/shdc_mean', sh_dc_value, iteration)
+        # # TensorBoard 기록
+        # if tb_writer:
+        #     tb_writer.add_scalar('train/brightness', curr_brightness, iteration)
+        #     tb_writer.add_scalar('train/opacity_mean', mean_opacity, iteration)
+        #     #tb_writer.add_scalar('train/shdc_mean', sh_dc_value, iteration)
 
 
-        # 나중에 plot 그리기 위해 저장
-        if 'brightness_log' not in locals():
-            brightness_log = []
-        brightness_log.append(curr_brightness)
+        # # 나중에 plot 그리기 위해 저장
+        # if 'brightness_log' not in locals():
+        #     brightness_log = []
+        # brightness_log.append(curr_brightness)
 
-        if viewpoint_cam.alpha_mask is not None:
-            alpha_mask = viewpoint_cam.alpha_mask.cuda()
-            image *= alpha_mask
+        # if viewpoint_cam.alpha_mask is not None:
+        #     alpha_mask = viewpoint_cam.alpha_mask.cuda()
+        #     image *= alpha_mask
 
         # Loss
         
@@ -229,6 +230,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0)) if FUSED_SSIM_AVAILABLE \
                          else ssim(image, gt_image)
+
             loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
         
         
@@ -286,11 +288,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             if iteration % 10 == 0:
                 #progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
                 progress_bar.update(10)
-            if iteration == opt.iterations:
-                progress_bar.close()
+            # if iteration == opt.iterations:
+            #     progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
+            #training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -311,7 +313,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     if 'prev_brightness' not in locals():
                         prev_brightness = None
                     #prune_iter =[0]
-                    prune_iter=[600, 1200,1800]
+                    #prune_iter=[600, 1200, 1800]
                     # prune 직전 brightness 저장
                     # if not hasattr(gaussians, "prev_brightness") or gaussians.prev_brightness is None or iteration in prune_iter:
                     #     out = render(viewpoint_cam, gaussians, pipe, background)
