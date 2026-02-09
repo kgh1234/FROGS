@@ -193,7 +193,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         if tb_writer:
             tb_writer.add_scalar('train/brightness', curr_brightness, iteration)
             tb_writer.add_scalar('train/opacity_mean', mean_opacity, iteration)
-            tb_writer.add_scalar('train/shdc_mean', sh_dc_value, iteration)
+            #tb_writer.add_scalar('train/shdc_mean', sh_dc_value, iteration)
 
 
         # 나중에 plot 그리기 위해 저장
@@ -267,20 +267,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
             #     gaussians._ema_bright_state = None
 
             # pruning 시점 또는 주기적 호출 (예: 50 iter마다)
-            if (iteration % 100 == 0) or (iteration in prune_iter):
-                gaussians._ema_bright_state = ema_brightness_compensation_from_image(
-                    gaussians=gaussians,
-                    render_img=image,      # 현재 view에서 렌더한 결과 그대로 사용
-                     visibility_filter= visibility_filter,
-                    state=gaussians._ema_bright_state,
-                    iteration=iteration,
-                    warmup_iters=500,
-                    luma_momentum=0.95,
-                    tolerance=0.98,
-                    max_global_gain=1.2,
-                    max_step_gain=1.01,
-                    step_alpha=0.2,
-                )
+            # if (iteration % 100 == 0) or (iteration in prune_iter):
+            #     gaussians._ema_bright_state = ema_brightness_compensation_from_image(
+            #         gaussians=gaussians,
+            #         render_img=image,      # 현재 view에서 렌더한 결과 그대로 사용
+            #          visibility_filter= visibility_filter,
+            #         state=gaussians._ema_bright_state,
+            #         iteration=iteration,
+            #         warmup_iters=500,
+            #         luma_momentum=0.95,
+            #         tolerance=0.98,
+            #         max_global_gain=1.2,
+            #         max_step_gain=1.01,
+            #         step_alpha=0.2,
+            #     )
 
 
             if iteration % 10 == 0:
