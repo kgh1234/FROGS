@@ -4,27 +4,23 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="mipnerf"
+SCENE_NAME="lerf_mask"
 ROOT="../../masked_datasets/$SCENE_NAME"
-OUTPUT_ROOT="../../check/frogs/$SCENE_NAME"
+OUTPUT_ROOT="../../output/frogs/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="Check"
+SHEET_NAME="tst"
 
 
 export CUDA_VISIBLE_DEVICES=0
 
 for SCENE_PATH in "$ROOT"/*; do
     if [ -d "$SCENE_PATH" ]; then
-        #SCENE_PATH="../../masked_datasets/$SCENE_NAME/bonsai"
         SCENE=$(basename "$SCENE_PATH")
-        # if [ "$SCENE" == 'bicycle' ]; then
-        #     continue
-        # fi
 
         IMG_DIR="$SCENE_PATH/images"
         MASK_DIR="$SCENE_PATH/mask"
         ORI_DIR="$SCENE_PATH/images_ori"
-        OUT_DIR="$OUTPUT_ROOT/${SCENE}/$(date -d '+9 hours' +%m%d_%H%M)"
+        OUT_DIR="$OUTPUT_ROOT/${SCENE}"
 
 
         echo "====================================="
@@ -51,7 +47,7 @@ for SCENE_PATH in "$ROOT"/*; do
         echo "Rendering: $SCENE"
  
         RENDER_START=$(date +%s)
-        python render_mask.py -m "$OUT_DIR" --mask_dir "$MASK_DIR"
+        python render_with_mask.py -m "$OUT_DIR" --mask_dir "$MASK_DIR"
         RENDER_END=$(date +%s)
         RENDER_TIME=$((RENDER_END - RENDER_START))
         echo "Rendering time: ${RENDER_TIME}s"
@@ -59,9 +55,8 @@ for SCENE_PATH in "$ROOT"/*; do
 
         python render_FPS.py -m "$OUT_DIR" | tee fps_tmp.log
         FPS=$(grep -oP 'FPS\s*:\s*\K[0-9.e+-]+' fps_tmp.log)
+        FPS=${FPS_VAL:-0}
         echo "FPS: $FPS"
-
-
 
         echo "Evaluating metrics: $SCENE"
         python metrics_object_mIoU.py -m "$OUT_DIR" --mask_dir "$MASK_DIR" | tee metrics_tmp.log
@@ -91,6 +86,11 @@ for SCENE_PATH in "$ROOT"/*; do
         LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
         MIOU=$(grep "mIoU" metrics_tmp.log | awk '{print $3}')
 
+        SSIM=${SSIM:-0}
+        PSNR=${PSNR:-0}
+        LPIPS=${LPIPS:-0}
+        MIOU=${MIOU:-0}
+
         python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$FPS" "$VRAM_MAX" "$GAUSSIAN_COUNT"
 
 
@@ -98,14 +98,12 @@ for SCENE_PATH in "$ROOT"/*; do
         if [ ! -f "$CSV_FILE" ]; then
             echo "scene,SSIM,PSNR,LPIPS,MIOU,FPS" > "$CSV_FILE"
         fi
-        echo "$SCENE,$SSIM,$PSNR,$LPIPS,$MIOU, $FPS" >> "$CSV_FILE"
+        echo "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$FPS" "$VRAM_MAX" "$GAUSSIAN_COUNT" >> "$CSV_FILE"
 
         echo "Metrics for $SCENE appended to $CSV_FILE"
         echo "Finished: $SCENE"
         echo
 
-
-        
     fi
 done
 

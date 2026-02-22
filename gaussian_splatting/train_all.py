@@ -65,7 +65,7 @@ except:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
-             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iter=None, prune_ratio=1.0, cov_threshold=None, hit_ratio=None, threshold_prune_k=None, max_pruning=None):
+             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iter=None, prune_ratio=1.0, cov_threshold=None, hit_ratio=None, threshold_prune_k=None, max_pruning=None, geometric_filtering=True, region_filtering=True):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -124,50 +124,37 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
         gaussians.update_learning_rate(iteration)
 
-
-        # with torch.no_grad():
-
-        #     # --- Opacity 평균 기록 ---
-        #     mean_opacity = gaussians.get_opacity.mean().item()
-        #     opacity_log.append(mean_opacity)
-
-        #     # --- SH DC(0번째 SH coefficient) 기록 ---
-        #     # gaussians.get_features_dc(): [N,3] 형태일 것
-        #     #sh_dc_value = gaussians.get_features_dc.mean().item()
-        #     #shdc_log.append(sh_dc_value)
-
-        #     # --- iteration ---
-        #     iter_log.append(iteration)
-
-
         # Every 1000 its we increase the levels of SH up to a maximum degree
         if iteration % 1000 == 0:
             gaussians.oneupSHdegree()
 
-        # # filtering on/off
-        if iteration == 1000 and iteration < opt.densify_until_iter:
-            bad_idx = compute_view_jaccard_fast(scene, gaussians, pipe, background, threshold=cov_threshold)
-            if len(bad_idx) > 0:
-                train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
-                print(f"[Iter {iteration}] Removed {len(bad_idx)} low-consistency views from training.")
-                print(f"[INFO] Remaining training views: {len(train_views)}")
+        # filtering on/off
+        if geometric_filtering:
+            if iteration == 1000 and iteration < opt.densify_until_iter:
+                bad_idx = compute_view_jaccard_fast(scene, gaussians, pipe, background, threshold=cov_threshold)
+                if len(bad_idx) > 0:
+                    train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
+                    print(f"[Iter {iteration}] Removed {len(bad_idx)} low-consistency views from training.")
+                    print(f"[INFO] Remaining training views: {len(train_views)}")
 
-        if iteration == 1801 and iteration < opt.densify_until_iter:
-            from scene.view_consistency import gaussian_view_consistency
-            bad_idx = gaussian_view_consistency(
-                scene=scene,
-                gaussians=gaussians,
-                mask_dir=mask_dir,
-                mask_invert=mask_invert,
-                threshold=hit_ratio,       # or fixed like 0.05
-            )
-            if bad_idx is not None and len(bad_idx) > 0:
-                train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
-                removed_views = [v for i, v in enumerate(train_views) if i in bad_idx]
-                removed_names = [v.image_name for v in removed_views]
-                for i, name in zip(bad_idx, removed_names):
-                    print(f"  - View {i:03d}: {name}")
-                print(f"[INFO] Remaining training views: {len(train_views)}")
+
+        if region_filtering:
+            if iteration == 1801 and iteration < opt.densify_until_iter:
+                from scene.view_consistency import gaussian_view_consistency
+                bad_idx = gaussian_view_consistency(
+                    scene=scene,
+                    gaussians=gaussians,
+                    mask_dir=mask_dir,
+                    mask_invert=mask_invert,
+                    threshold=hit_ratio, 
+                )
+                if bad_idx is not None and len(bad_idx) > 0:
+                    train_views = [v for i, v in enumerate(train_views) if i not in bad_idx]
+                    removed_views = [v for i, v in enumerate(train_views) if i in bad_idx]
+                    removed_names = [v.image_name for v in removed_views]
+                    for i, name in zip(bad_idx, removed_names):
+                        print(f"  - View {i:03d}: {name}")
+                    print(f"[INFO] Remaining training views: {len(train_views)}")
             
         # Pick a random Camera
         if not viewpoint_stack:
@@ -187,24 +174,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
 
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
-        curr_brightness = image.clamp(0,1).mean().item()
-
-        # # TensorBoard 기록
-        # if tb_writer:
-        #     tb_writer.add_scalar('train/brightness', curr_brightness, iteration)
-        #     tb_writer.add_scalar('train/opacity_mean', mean_opacity, iteration)
-        #     #tb_writer.add_scalar('train/shdc_mean', sh_dc_value, iteration)
-
-
-        # # 나중에 plot 그리기 위해 저장
-        # if 'brightness_log' not in locals():
-        #     brightness_log = []
-        # brightness_log.append(curr_brightness)
-
-        # if viewpoint_cam.alpha_mask is not None:
-        #     alpha_mask = viewpoint_cam.alpha_mask.cuda()
-        #     image *= alpha_mask
 
         # Loss
         
@@ -260,39 +229,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         iter_end.record()
 
         with torch.no_grad():
-            # Progress bar
-            # ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
-            # ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
-            # from scene.pruning_color import ema_brightness_compensation_from_image
-
-            # if not hasattr(gaussians, "_ema_bright_state"):
-            #     gaussians._ema_bright_state = None
-
-            # pruning 시점 또는 주기적 호출 (예: 50 iter마다)
-            # if (iteration % 100 == 0) or (iteration in prune_iter):
-            #     gaussians._ema_bright_state = ema_brightness_compensation_from_image(
-            #         gaussians=gaussians,
-            #         render_img=image,      # 현재 view에서 렌더한 결과 그대로 사용
-            #          visibility_filter= visibility_filter,
-            #         state=gaussians._ema_bright_state,
-            #         iteration=iteration,
-            #         warmup_iters=500,
-            #         luma_momentum=0.95,
-            #         tolerance=0.98,
-            #         max_global_gain=1.2,
-            #         max_step_gain=1.01,
-            #         step_alpha=0.2,
-            #     )
-
-
             if iteration % 10 == 0:
                 #progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}"})
                 progress_bar.update(10)
-            # if iteration == opt.iterations:
-            #     progress_bar.close()
 
-            # Log and save
-            #training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -309,21 +249,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
 
                 if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                     size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                    
-                    if 'prev_brightness' not in locals():
-                        prev_brightness = None
-                    #prune_iter =[0]
-                    #prune_iter=[600, 1200, 1800]
-                    # prune 직전 brightness 저장
-                    # if not hasattr(gaussians, "prev_brightness") or gaussians.prev_brightness is None or iteration in prune_iter:
-                    #     out = render(viewpoint_cam, gaussians, pipe, background)
-                    #     img = out["render"].clamp(0, 1)
-                    #     gaussians.prev_brightness = img.mean().item()
-                    #out = render(viewpoint_cam, gaussians, pipe, background)
-                    #gaussians.prev_brightness = out["render"].clamp(0,1).mean().item()
 
-
-                   
                     bad_idx = gaussians.densify_and_prune(
                         opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,
                         mask_dir=mask_dir if use_mask else None,
@@ -333,30 +259,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         mask_prune_iter=prune_iter, # pruning on/off
                         prune_ratio=prune_ratio,
                         pipeline=pipe,            
-                        background=background,     
-                        prev_brightness=prev_brightness,
+                        background=background,
                         k=threshold_prune_k,
                         max_pruning=max_pruning
-                    )
-                    
-
-                                            
-                    
-                # from utils.mask_projection_visualization import visualize_mask_pruning_result
-                # if use_mask and iteration in prune_iterations:
-                #     mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
-                #     if mask_path:
-                #         visualize_mask_pruning_result(
-                #             xyz=gaussians.get_xyz,
-                #             viewpoint_cam=viewpoint_cam,
-                #             mask_path=mask_path,
-                #             prune_mask=getattr(gaussians, "last_prune_mask", None)
-                #             if hasattr(gaussians, "last_prune_mask") else None,
-                #             invert=False,
-                #             save_path=f"{scene.model_path}/debug/mask_prune_vis_iter{iteration}.png"
-                # )
-
-
+                    )        
 
             # Optimizer step
             if iteration < opt.iterations:
@@ -371,35 +277,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     gaussians.optimizer.zero_grad(set_to_none = True)
 
 
-            # if iteration % 100 == 0:  
-            #     #gaussian_overlap(scene, gaussians, mask_dir, iteration)
-            #     gauss_state = {
-            #         "positions": gaussians.get_xyz.detach().cpu().numpy(),
-            #         "scales": gaussians.get_scaling.detach().cpu().numpy(),
-            #         "opacities": gaussians.get_opacity.detach().cpu().numpy(),
-            #     }
-            #     if stopper.update(gauss_state):
-            #         print(f"\n[EarlyStop] Gaussian stats converged at iteration {iteration}")
-            #         print(f"[ITER {iteration}] Saving and exiting...")
-            #         scene.save(iteration)
-            #         return
-
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-
-
-    # import matplotlib.pyplot as plt
-    # plt.figure(figsize=(10,6))
-    # plt.plot(iter_log, opacity_log, label="Opacity Mean")
-    # plt.plot(iter_log, shdc_log, label="SH-DC Mean")
-    # plt.xlabel("Iteration")
-    # plt.ylabel("Value")
-    # plt.title("Opacity & SH-DC Changes Over Iterations")
-    # plt.legend()
-    # plt.grid(True)
-    # plt.savefig("brightness_opacity_shdc_curve.png", dpi=200)
-    # plt.close()
 
 
 def prepare_output_and_logger(args):    
@@ -459,9 +339,6 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
                     tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
 
-        if tb_writer:
-            tb_writer.add_histogram("scene/opacity_histogram", scene.gaussians.get_opacity, iteration)
-            tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":
@@ -481,20 +358,30 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
     
-    parser.add_argument('--prune_ratio', type=float, default=1.0)
-    
 
-    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[600, 1200, 1800])
 
     parser.add_argument("--mask_dir", type=str, default="")
     parser.add_argument("--mask_binary_threshold", type=int, default=128)
     parser.add_argument("--mask_invert", action="store_true")
-    
+
+
+    # view filtering
+    parser.add_argument("--geometric_filtering", type=bool, default=True) # off = False
+    parser.add_argument("--region_filtering", type=bool, default=True) # off = False
+
+    # pruning
+    parser.add_argument('--prune_ratio', type=float, default=1.0) # off = 0
+    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[600, 1200, 1800])
+
+
+    # hyperparameter
     parser.add_argument("--cov_threshold", type=float, default=0.2)
     parser.add_argument("--hit_ratio", type=float, default=0.05)
     parser.add_argument("--threshold_prune_k", type=float, default=0.5)
     parser.add_argument("--pruning_max", type=float, default=0.05)
     
+
+
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     
@@ -519,7 +406,9 @@ if __name__ == "__main__":
             cov_threshold=args.cov_threshold,
             hit_ratio=args.hit_ratio,
             threshold_prune_k=args.threshold_prune_k, 
-            max_pruning=args.pruning_max
+            max_pruning=args.pruning_max, 
+            geometric_filtering=args.geometric_filtering, 
+            region_filtering=args.region_filtering
             )
 
     # All done
