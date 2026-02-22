@@ -625,3 +625,125 @@ class GaussianModel:
         self.denom[update_filter] += 1
 
 
+    def merge_similar_neighbors(self, color_threshold=0.2, neighbor_radius=0.4, min_group_size=3):
+
+        xyz = self.get_xyz.detach()
+        colors = self._features_dc.detach().squeeze(1)
+        scales = self.get_scaling.detach()
+        opacities = self.get_opacity.detach()
+        rotations = self._rotation.detach()
+        features_rest = self._features_rest.detach()
+        
+        N = xyz.shape[0]
+        merged = torch.zeros(N, dtype=torch.bool, device=xyz.device)
+        
+        new_xyz_list = []
+        new_colors_list = []
+        new_scales_list = []
+        new_opacities_list = []
+        new_rotations_list = []
+        new_features_rest_list = []
+        
+        avg_scales = scales.mean(dim=1)
+        
+        print(f"[Merging] Processing {N} gaussians...")
+        
+        for i in range(N):
+            if merged[i]:
+                continue
+            
+            if i % 10000 == 0:
+                print(f"  Progress: {i}/{N}")
+            
+            current_xyz = xyz[i:i+1]
+            current_color = colors[i:i+1]
+            neighbor_threshold = avg_scales[i] * neighbor_radius
+            
+            # 유사한 이웃 찾기
+            dists = torch.norm(xyz - current_xyz, dim=1)
+            is_close = (dists < neighbor_threshold) & (dists > 1e-6)
+            
+            if is_close.sum() < min_group_size - 1:
+                # 병합할 이웃이 부족 → 그대로 유지
+                new_xyz_list.append(xyz[i:i+1])
+                new_colors_list.append(colors[i:i+1])
+                new_scales_list.append(self._scaling[i:i+1])
+                new_opacities_list.append(self._opacity[i:i+1])
+                new_rotations_list.append(rotations[i:i+1])
+                new_features_rest_list.append(features_rest[i:i+1])
+                merged[i] = True
+                continue
+            
+            # 색상 유사도 체크
+            neighbor_indices = torch.where(is_close)[0]
+            neighbor_colors = colors[neighbor_indices]
+            color_diffs = torch.abs(current_color - neighbor_colors).mean(dim=1)
+            similar_mask = color_diffs < color_threshold
+            
+            if similar_mask.sum() < min_group_size - 1:
+                # 색상이 유사한 이웃 부족 → 그대로 유지
+                new_xyz_list.append(xyz[i:i+1])
+                new_colors_list.append(colors[i:i+1])
+                new_scales_list.append(self._scaling[i:i+1])
+                new_opacities_list.append(self._opacity[i:i+1])
+                new_rotations_list.append(rotations[i:i+1])
+                new_features_rest_list.append(features_rest[i:i+1])
+                merged[i] = True
+                continue
+            
+            # 병합 대상
+            merge_indices = torch.cat([torch.tensor([i], device=xyz.device), 
+                                       neighbor_indices[similar_mask]])
+            
+            # 평균 내기
+            merged_xyz = xyz[merge_indices].mean(dim=0, keepdim=True)
+            merged_color = colors[merge_indices].mean(dim=0, keepdim=True)
+            merged_scale = self._scaling[merge_indices].mean(dim=0, keepdim=True)
+            
+            # 불투명도는 합산 (여러 개가 합쳐졌으므로)
+            merged_opacity_logit = torch.log(
+                opacities[merge_indices].sum().clamp(min=0.01, max=0.99) / 
+                (1 - opacities[merge_indices].sum().clamp(min=0.01, max=0.99))
+            ).unsqueeze(0).unsqueeze(1)
+            
+            merged_rotation = rotations[merge_indices].mean(dim=0, keepdim=True)
+            merged_rotation = merged_rotation / merged_rotation.norm()  # normalize
+            
+            merged_features_rest = features_rest[merge_indices].mean(dim=0, keepdim=True)
+            
+            new_xyz_list.append(merged_xyz)
+            new_colors_list.append(merged_color)
+            new_scales_list.append(merged_scale)
+            new_opacities_list.append(merged_opacity_logit)
+            new_rotations_list.append(merged_rotation)
+            new_features_rest_list.append(merged_features_rest)
+            
+            # 병합된 가우시안들 마킹
+            merged[merge_indices] = True
+            
+            if i % 1000 == 0:
+                torch.cuda.empty_cache()
+        
+        # 새로운 파라미터 생성
+        new_xyz = torch.cat(new_xyz_list, dim=0)
+        new_colors = torch.cat(new_colors_list, dim=0)
+        new_scales = torch.cat(new_scales_list, dim=0)
+        new_opacities = torch.cat(new_opacities_list, dim=0)
+        new_rotations = torch.cat(new_rotations_list, dim=0)
+        new_features_rest = torch.cat(new_features_rest_list, dim=0)
+        
+        print(f"[Merging] {N} → {new_xyz.shape[0]} gaussians ({N - new_xyz.shape[0]} merged)")
+        
+        return {
+            'xyz': new_xyz,
+            'colors': new_colors.unsqueeze(1),
+            'scales': new_scales,
+            'opacities': new_opacities,
+            'rotations': new_rotations,
+            'features_rest': new_features_rest
+        }
+
+
+
+
+

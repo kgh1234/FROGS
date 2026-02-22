@@ -4,11 +4,11 @@
 # for all scenes under $ROOT
 # =============================================
 
-SCENE_NAME="lerf_mask"
+SCENE_NAME="mipnerf"
 ROOT="../../masked_datasets/$SCENE_NAME"
 OUTPUT_ROOT="../../output/frogs/$SCENE_NAME"
 CSV_FILE="$OUTPUT_ROOT/metrics_summary_$SCENE_NAME.csv"
-SHEET_NAME="tst"
+SHEET_NAME="test"
 
 
 export CUDA_VISIBLE_DEVICES=0
@@ -47,7 +47,7 @@ for SCENE_PATH in "$ROOT"/*; do
         echo "Rendering: $SCENE"
  
         RENDER_START=$(date +%s)
-        python render_with_mask.py -m "$OUT_DIR" --mask_dir "$MASK_DIR"
+        python render_with_mask.py -m "$OUT_DIR"
         RENDER_END=$(date +%s)
         RENDER_TIME=$((RENDER_END - RENDER_START))
         echo "Rendering time: ${RENDER_TIME}s"
@@ -55,7 +55,7 @@ for SCENE_PATH in "$ROOT"/*; do
 
         python render_FPS.py -m "$OUT_DIR" | tee fps_tmp.log
         FPS=$(grep -oP 'FPS\s*:\s*\K[0-9.e+-]+' fps_tmp.log)
-        FPS=${FPS_VAL:-0}
+
         echo "FPS: $FPS"
 
         echo "Evaluating metrics: $SCENE"
@@ -80,7 +80,6 @@ for SCENE_PATH in "$ROOT"/*; do
             echo "Gaussian: point_cloud folder not found in $OUT_DIR"
         fi
 
-        # metrics 값 추출
         SSIM=$(grep "SSIM" metrics_tmp.log | awk '{print $3}')
         PSNR=$(grep "PSNR" metrics_tmp.log | awk '{print $3}')
         LPIPS=$(grep -oP 'LPIPS\s*:\s*\K[0-9.e+-]+' metrics_tmp.log)
@@ -94,7 +93,6 @@ for SCENE_PATH in "$ROOT"/*; do
         python ../../update_sheet.py "$SHEET_NAME" "$SCENE" "$SSIM" "$PSNR" "$LPIPS" "$MIOU" "$TRAIN_TIME" "$RENDER_TIME" "$FPS" "$VRAM_MAX" "$GAUSSIAN_COUNT"
 
 
-        # CSV 작성
         if [ ! -f "$CSV_FILE" ]; then
             echo "scene,SSIM,PSNR,LPIPS,MIOU,FPS" > "$CSV_FILE"
         fi

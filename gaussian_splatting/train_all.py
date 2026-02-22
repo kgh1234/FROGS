@@ -18,6 +18,7 @@ import cv2
 import glob
 import uuid
 from tqdm import tqdm
+from torch import nn
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
@@ -65,7 +66,9 @@ except:
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
-             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iter=None, prune_ratio=1.0, cov_threshold=None, hit_ratio=None, threshold_prune_k=None, max_pruning=None, geometric_filtering=True, region_filtering=True):
+             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iter=None, prune_ratio=1.0, 
+             cov_threshold=None, hit_ratio=None, threshold_prune_k=None, max_pruning=None, 
+             geometric_filtering=True, region_filtering=True, gaussian_merge=True):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -262,7 +265,30 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                         background=background,
                         k=threshold_prune_k,
                         max_pruning=max_pruning
-                    )        
+                    )
+
+                    if gaussian_merge:
+                        if iteration % 1000 == 0 and iteration < 15000:
+                            merged_params = gaussians.merge_similar_neighbors(
+                                color_threshold=0.2,
+                                neighbor_radius=0.4,
+                                min_group_size=3
+                            )
+                            
+                            gaussians._xyz = nn.Parameter(merged_params['xyz'].requires_grad_(True))
+                            gaussians._features_dc = nn.Parameter(merged_params['colors'].requires_grad_(True))
+                            gaussians._scaling = nn.Parameter(merged_params['scales'].requires_grad_(True))
+                            gaussians._opacity = nn.Parameter(merged_params['opacities'].requires_grad_(True))
+                            gaussians._rotation = nn.Parameter(merged_params['rotations'].requires_grad_(True))
+                            gaussians._features_rest = nn.Parameter(merged_params['features_rest'].requires_grad_(True))
+                            
+                            gaussians.xyz_gradient_accum = torch.zeros((gaussians._xyz.shape[0], 1), device="cuda")
+                            gaussians.denom = torch.zeros((gaussians._xyz.shape[0], 1), device="cuda")
+                            gaussians.max_radii2D = torch.zeros((gaussians._xyz.shape[0]), device="cuda")
+                            
+                            gaussians.training_setup(opt)        
+
+
 
             # Optimizer step
             if iteration < opt.iterations:
@@ -368,10 +394,11 @@ if __name__ == "__main__":
     # view filtering
     parser.add_argument("--geometric_filtering", type=bool, default=True) # off = False
     parser.add_argument("--region_filtering", type=bool, default=True) # off = False
+    parser.add_argument("--gaussian_merge", type=bool, default=True)
 
     # pruning
     parser.add_argument('--prune_ratio', type=float, default=1.0) # off = 0
-    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[600, 1200, 1800])
+    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[600, 1200, 1800, 10000])
 
 
     # hyperparameter
@@ -408,7 +435,8 @@ if __name__ == "__main__":
             threshold_prune_k=args.threshold_prune_k, 
             max_pruning=args.pruning_max, 
             geometric_filtering=args.geometric_filtering, 
-            region_filtering=args.region_filtering
+            region_filtering=args.region_filtering,
+            gaussian_merge=args.gaussian_merge
             )
 
     # All done
