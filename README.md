@@ -35,6 +35,7 @@ We mainly use two datasets: Mip-NeRF 360 and LERF-Mask.
 Official Download link
 - MipNeRF360 : 
 - LERF-Mask : 
+- Tanks & Temples : 
 
 In this paper, additional mask annotations are required.
 Please download them from the link below.
@@ -62,6 +63,11 @@ masked_datasets
 ├── mipnerf
 │   ├── bicycle
 │   ├── bonsai
+│   ├── ...
+│
+├── tanks_temples
+│   ├── Barn
+│   ├── Caterpillar
 │   ├── ...
 
 ```
