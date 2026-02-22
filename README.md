@@ -24,7 +24,7 @@ This Docker image does not include the source code.
 Please use the mount option to link the cloned GitHub repository.
 
 ``` bash
-docker run -it -v {PWD}:/workspace --gpus all --shm-size=16g --name frogs mobuk/frogs:stable /bin/bash
+docker run -it -v ${PWD}:/workspace --gpus all --shm-size=16g --name frogs mobuk/frogs:stable /bin/bash
 ```
 
 
