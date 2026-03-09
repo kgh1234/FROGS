@@ -64,11 +64,38 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 
+def str2bool(v):
+    return v.lower() not in ('false', '0', 'no')
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations,
              checkpoint_iterations, checkpoint, debug_from,
-             mask_dir=None, mask_binary_threshold=128, mask_invert=False, prune_iter=None, prune_ratio=1.0, 
+             mask_dir=None, mask_binary_threshold=128, mask_invert=False, mask_disabled=False, prune_iter=None, prune_ratio=1.0, 
              cov_threshold=None, hit_ratio=None, threshold_prune_k=None, max_pruning=None, 
-             geometric_filtering=True, region_filtering=True, gaussian_merge=True):
+             geometric_filtering=True, region_filtering=True, gaussian_merge=True, a=1000, b=15000):
+
+
+    if geometric_filtering:
+        print("GEOMETRIC_FILTERING ON")
+    else:
+        print("GEOMETRIC_FILTERING OFF")
+
+    if region_filtering:
+        print("REGION_FILTERING ON")
+    else:
+        print("REGION_FILTERING OFF")
+        
+    if prune_ratio==0:
+        print('PRUNING OFF')
+    else:
+        print(f'PRUNING: {prune_ratio}')
+
+    if gaussian_merge:
+        print("GAUSSIAN_MERGE ON")
+    else:
+        print("GAUSSIAN_MERGE OFF")
+
+    print("maskdir", mask_dir)
+
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -184,20 +211,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         
         
         use_mask = mask_dir is not None and len(mask_dir) > 0
-        if use_mask and (iteration > prune_iter[0]):
-            
-            mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
-            
-            if mask_path and os.path.exists(mask_path):
-                mask = _load_binary_mask(mask_path, image.shape[1], image.shape[2],
-                                        binary_threshold=mask_binary_threshold,
-                                        invert=mask_invert).unsqueeze(0)
-                mask = mask.expand_as(gt_image)
-            else:
+        if use_mask and (iteration > prune_iter[0]):  
+            if mask_disabled:
+                # mask_disabled 옵션이 켜지면 전체를 1로 처리 (마스크 비활성화)
                 mask = torch.ones_like(gt_image)
-                
+            else:
+                mask_path = _find_mask_path(mask_dir, viewpoint_cam.image_name)
+                if mask_path and os.path.exists(mask_path):
+                    mask = _load_binary_mask(mask_path, image.shape[1], image.shape[2],
+                                            binary_threshold=mask_binary_threshold,
+                                            invert=mask_invert).unsqueeze(0)
+                    mask = mask.expand_as(gt_image)
+                else:
+                    mask = torch.ones_like(gt_image)
+
             diff = torch.abs(image - gt_image) * mask
-            out_diff = torch.abs(image - gt_image) * (1 - mask) * 0.00001
+            out_diff = torch.abs(image - gt_image) * (1 - mask) * 0.01
             Ll1 = (diff.sum() + out_diff.sum()) / (image.numel() / image.shape[0] + 1e-8)
 
             ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0)) if FUSED_SSIM_AVAILABLE \
@@ -268,7 +297,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     )
 
                     if gaussian_merge:
-                        if iteration % 1000 == 0 and iteration < 15000:
+                        if iteration % a == 0 and iteration < b:
                             merged_params = gaussians.merge_similar_neighbors(
                                 color_threshold=0.2,
                                 neighbor_radius=0.4,
@@ -385,20 +414,21 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     
 
-
     parser.add_argument("--mask_dir", type=str, default="")
     parser.add_argument("--mask_binary_threshold", type=int, default=128)
     parser.add_argument("--mask_invert", action="store_true")
+    
+    parser.add_argument("--mask_disabled", action="store_true", default=False)
 
 
     # view filtering
-    parser.add_argument("--geometric_filtering", type=bool, default=True) # off = False
-    parser.add_argument("--region_filtering", type=bool, default=True) # off = False
-    parser.add_argument("--gaussian_merge", type=bool, default=True)
+    parser.add_argument("--geometric_filtering", type=str2bool, default=True) # off = False
+    parser.add_argument("--region_filtering", type=str2bool, default=True) # off = False
+    parser.add_argument("--gaussian_merge", type=str2bool, default=True)
 
     # pruning
     parser.add_argument('--prune_ratio', type=float, default=1.0) # off = 0
-    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[600, 1200, 1800, 10000])
+    parser.add_argument('--prune_iterations', nargs="+", type=int, default=[600, 1200, 1800])
 
 
     # hyperparameter
@@ -406,7 +436,11 @@ if __name__ == "__main__":
     parser.add_argument("--hit_ratio", type=float, default=0.05)
     parser.add_argument("--threshold_prune_k", type=float, default=0.5)
     parser.add_argument("--pruning_max", type=float, default=0.05)
-    
+
+
+
+    parser.add_argument("--step", type=float, default=1000)
+    parser.add_argument("--end", type=float, default=15000)
 
 
     args = parser.parse_args(sys.argv[1:])
@@ -428,6 +462,7 @@ if __name__ == "__main__":
             mask_dir=args.mask_dir if args.mask_dir else None,
             mask_binary_threshold=args.mask_binary_threshold,
             mask_invert=args.mask_invert,
+            mask_disabled=args.mask_disabled,
             prune_iter=args.prune_iterations,
             prune_ratio=args.prune_ratio,
             cov_threshold=args.cov_threshold,
@@ -436,7 +471,9 @@ if __name__ == "__main__":
             max_pruning=args.pruning_max, 
             geometric_filtering=args.geometric_filtering, 
             region_filtering=args.region_filtering,
-            gaussian_merge=args.gaussian_merge
+            gaussian_merge=args.gaussian_merge,
+            a = args.step,
+            b = args.end
             )
 
     # All done

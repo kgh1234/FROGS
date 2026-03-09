@@ -12,12 +12,12 @@ def _stem(path_or_name: str) -> str:
 
 def _find_mask_path(mask_dir: str, image_name_or_path: str):
     stem = _stem(image_name_or_path)
-    for ext in ["png", "jpg", "jpeg", "bmp", "webp"]:
+    for ext in ["png", "jpg", "jpeg", "bmp", "webp", "JPG"]:
         cand = os.path.join(mask_dir, f"{stem}.{ext}")
         if os.path.isfile(cand):
             return cand
     # fallback for “mask” token
-    for ext in ["png", "jpg", "jpeg", "bmp", "webp"]:
+    for ext in ["png", "jpg", "jpeg", "bmp", "webp", "JPG"]:
         cands = glob.glob(os.path.join(mask_dir, f"{stem}*mask*.{ext}"))
         if cands:
             return cands[0]
