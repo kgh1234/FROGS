@@ -95,6 +95,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
         print("GAUSSIAN_MERGE OFF")
 
     print("maskdir", mask_dir)
+    print("mask_disabled", mask_disabled)
 
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
@@ -174,6 +175,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                 bad_idx = gaussian_view_consistency(
                     scene=scene,
                     gaussians=gaussians,
+                    mask_disabled=mask_disabled,
                     mask_dir=mask_dir,
                     mask_invert=mask_invert,
                     threshold=hit_ratio, 
@@ -285,6 +287,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations,
                     bad_idx = gaussians.densify_and_prune(
                         opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,
                         mask_dir=mask_dir if use_mask else None,
+                        mask_disabled=mask_disabled,
                         scene=scene,
                         viewpoint_camera=viewpoint_cam,
                         iter=iteration,

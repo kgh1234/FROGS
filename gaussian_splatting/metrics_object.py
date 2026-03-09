@@ -61,7 +61,7 @@ def evaluate(model_paths, mask_dir):
     mask_files = sorted(os.listdir(mask_dir), key=natural_key)
     selected_masks = [mask_files[i] for i in range(0, len(mask_files), 8)]
     print(f"Selected {len(selected_masks)} masks (every 8th frame)")
-    print(f"[DEBUG] first masks: {mask_files[:3]}")
+    print(f"[DEBUG] first masks: {selected_masks[:3]}")
 
     for scene_dir in model_paths:
         try:

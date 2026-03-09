@@ -17,7 +17,7 @@ from scene.mask_readers import _find_mask_path, _load_binary_mask
 # =========================
 
 @torch.no_grad()
-def gaussian_mask_overlap(xyz, scene, mask_dir, mask_invert=False, iter=0):
+def gaussian_mask_overlap(xyz, scene, mask_dir, mask_disabled=False, mask_invert=False, iter=0):
     """
     Compute per-Gaussian overlap ratio with 2D binary masks across all training views.
 
@@ -26,6 +26,7 @@ def gaussian_mask_overlap(xyz, scene, mask_dir, mask_invert=False, iter=0):
         scene (Scene): 3DGS Scene object with camera intrinsics/extrinsics
         mask_dir (str): directory containing GT or binary masks (same name as images)
         mask_invert (bool): if True, invert mask colors (object ↔ background)
+        mask_disabled (bool): if True, disable mask-based filtering
         iter (int): current training iteration (for logging/saving)
     Returns:
         overlap_ratio (torch.Tensor): (N,) average overlap ratio across visible views
@@ -50,8 +51,11 @@ def gaussian_mask_overlap(xyz, scene, mask_dir, mask_invert=False, iter=0):
         if not mask_path:
             continue
 
-        mask = _load_binary_mask(mask_path, H, W, invert=mask_invert).cpu().numpy()
-        mask_coverage_all.append(mask.mean())
+        if mask_disabled:
+            mask = np.ones((H, W), dtype=np.float32)
+        else:
+            mask = _load_binary_mask(mask_path, H, W, invert=mask_invert).cpu().numpy()
+            mask_coverage_all.append(mask.mean())
 
         uv = v.project_to_screen(xyz)
         u = uv[:, 0].long()
@@ -98,7 +102,7 @@ def gaussian_mask_overlap(xyz, scene, mask_dir, mask_invert=False, iter=0):
 # View Consistency Filtering (Gaussian Mask Overlap)
 # ==================================================
 @torch.no_grad()
-def gaussian_view_consistency(scene, gaussians, mask_dir, mask_invert=False, threshold=None, save_dir=None, debug_views=None):
+def gaussian_view_consistency(scene, gaussians, mask_dir, mask_disabled=False, mask_invert=False, threshold=None, save_dir=None, debug_views=None):
     """
     Identify low-outlier (inconsistent) views based on Gaussian–mask overlap and hit ratio.
     Automatically filters low-hit views, saves only those visualizations, and prints lowest 10 hit ratios.
@@ -116,6 +120,7 @@ def gaussian_view_consistency(scene, gaussians, mask_dir, mask_invert=False, thr
         xyz=gaussians.get_xyz,
         scene=scene,
         mask_dir=mask_dir,
+        mask_disabled=mask_disabled,
         mask_invert=mask_invert,
         iter=0
     )

@@ -459,6 +459,7 @@ class GaussianModel:
         
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, radii,
                     mask_dir=None,
+                    mask_disabled=False,
                     scene=None,
                     iter=None,
                     viewpoint_camera=None,
@@ -483,7 +484,7 @@ class GaussianModel:
         # ==========================================================
         # Global mask-based pruning
         # ==========================================================
-        if mask_dir is not None and mask_prune_iter is not None and iter in mask_prune_iter:
+        if not mask_disabled and mask_dir is not None and mask_prune_iter is not None and iter in mask_prune_iter:
             print(f"[MaskPrune@{iter}] Start global mask-based pruning...")
 
             overlap_ratio, avg_mask_ratio, overlap_sum, view_count, view_ratios = gaussian_mask_overlap(
@@ -491,6 +492,7 @@ class GaussianModel:
                 scene=scene,
                 mask_dir=mask_dir,
                 mask_invert=mask_invert,
+                mask_disabled=mask_disabled,
                 iter=iter
             )
 
